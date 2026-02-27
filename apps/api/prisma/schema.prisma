@@ -28,6 +28,22 @@ enum EmbeddingKind {
   COMPANY @map("company")
 }
 
+enum ImportBatchStatus {
+  QUEUED     @map("queued")
+  PROCESSING @map("processing")
+  COMPLETED  @map("completed")
+  FAILED     @map("failed")
+  CANCELED   @map("canceled")
+}
+
+enum ImportRowOutcome {
+  INSERTED  @map("inserted")
+  UPDATED   @map("updated")
+  SKIPPED   @map("skipped")
+  DUPLICATE @map("duplicate")
+  ERROR     @map("error")
+}
+
 model User {
   id             String          @id @default(cuid())
   email          String          @unique
@@ -37,6 +53,7 @@ model User {
   lastLoginAt    DateTime?       @map("last_login_at")
   auditLogs      AuditLog[]      @relation("AuditActor")
   enrichmentRuns EnrichmentRun[] @relation("RunCreator")
+  importBatches  ImportBatch[]   @relation("ImportCreator")
 
   @@map("users")
 }
@@ -66,18 +83,22 @@ model Contact {
   locationCountry  String?            @map("location_country")
   currentTitle     String?            @map("current_title")
   currentCompanyId String?            @map("current_company_id")
+  sourceImportBatchId String?         @db.Uuid @map("source_import_batch_id")
   createdAt        DateTime           @default(now()) @map("created_at")
   updatedAt        DateTime           @updatedAt @map("updated_at")
   lastEnrichedAt   DateTime?          @map("last_enriched_at")
   currentCompany   Company?           @relation(fields: [currentCompanyId], references: [id], onDelete: SetNull)
+  sourceImportBatch ImportBatch?      @relation(fields: [sourceImportBatchId], references: [id], onDelete: SetNull)
   contactMethods   ContactMethod[]
   tags             ContactTag[]
   events           ContactEvent[]
   enrichmentResults EnrichmentResult[]
   embeddings       Embedding[]
+  importRows       ImportRow[]
 
   @@index([fullName], map: "idx_contacts_full_name")
   @@index([currentCompanyId], map: "idx_contacts_company_id")
+  @@index([sourceImportBatchId], map: "idx_contacts_source_import_batch_id")
   @@map("contacts")
 }
 
@@ -201,4 +222,50 @@ model AuditLog {
   @@index([action], map: "idx_audit_logs_action")
   @@index([createdAt], map: "idx_audit_logs_created_at")
   @@map("audit_logs")
+}
+
+model ImportBatch {
+  id               String            @id @db.Uuid
+  filename         String
+  originalHeadersJson Json           @map("original_headers_json")
+  columnMappingJson Json?            @map("column_mapping_json")
+  status           ImportBatchStatus @default(QUEUED)
+  createdByUserId  String?           @map("created_by_user_id")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  startedAt        DateTime?         @map("started_at")
+  finishedAt       DateTime?         @map("finished_at")
+  totalRows        Int               @default(0) @map("total_rows")
+  processedRows    Int               @default(0) @map("processed_rows")
+  insertedCount    Int               @default(0) @map("inserted_count")
+  updatedCount     Int               @default(0) @map("updated_count")
+  skippedCount     Int               @default(0) @map("skipped_count")
+  duplicateCount   Int               @default(0) @map("duplicate_count")
+  errorCount       Int               @default(0) @map("error_count")
+  errorSampleJson  Json?             @map("error_sample_json")
+  createdByUser    User?             @relation("ImportCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  rows             ImportRow[]
+  contacts         Contact[]
+
+  @@index([status], map: "idx_import_batches_status")
+  @@index([createdByUserId], map: "idx_import_batches_created_by_user_id")
+  @@map("import_batches")
+}
+
+model ImportRow {
+  id             BigInt           @id @default(autoincrement())
+  batchId        String           @db.Uuid @map("batch_id")
+  rowIndex       Int              @map("row_index")
+  rawJson        Json?            @map("raw_json")
+  normalizedJson Json?            @map("normalized_json")
+  outcome        ImportRowOutcome
+  contactId      String?          @map("contact_id")
+  errorMessage   String?          @map("error_message")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  batch          ImportBatch      @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  contact        Contact?         @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@index([batchId], map: "idx_import_rows_batch_id")
+  @@index([batchId, rowIndex], map: "idx_import_rows_batch_id_row_index")
+  @@index([batchId, outcome], map: "idx_import_rows_batch_id_outcome")
+  @@map("import_rows")
 }

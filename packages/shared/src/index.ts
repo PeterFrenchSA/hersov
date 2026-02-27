@@ -1,4 +1,5 @@
 import { z } from 'zod';
+export * from './import/schema';
 
 export const roleSchema = z.enum(['Admin', 'Analyst', 'ReadOnly']);
 export type AppRole = z.infer<typeof roleSchema>;
@@ -14,6 +15,9 @@ export const contactsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   q: z.string().trim().max(200).optional(),
+  sortBy: z.enum(['updated_at', 'created_at', 'name']).default('updated_at'),
+  sortDir: z.enum(['asc', 'desc']).default('desc'),
+  importBatchId: z.string().uuid().optional(),
 });
 
 export type ContactsQueryInput = z.infer<typeof contactsQuerySchema>;

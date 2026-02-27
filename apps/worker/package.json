@@ -3,14 +3,25 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "npm run prisma:generate && tsc -p tsconfig.json",
     "start": "node dist/main.js",
     "lint": "eslint \"src/**/*.ts\"",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "echo \"No worker tests yet\""
+    "typecheck": "npm run prisma:generate && tsc --noEmit -p tsconfig.json",
+    "test": "npm run prisma:generate && jest --config jest.config.ts",
+    "prisma:generate": "prisma generate --schema ../api/prisma/schema.prisma"
   },
   "dependencies": {
+    "@hersov/shared": "0.1.0",
+    "@prisma/client": "^6.4.1",
     "bullmq": "^5.43.2",
-    "ioredis": "^5.4.2"
+    "csv-parse": "^5.6.0",
+    "ioredis": "^5.4.2",
+    "libphonenumber-js": "^1.11.17"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "jest": "^29.7.0",
+    "prisma": "^6.4.1",
+    "ts-jest": "^29.2.6"
   }
 }

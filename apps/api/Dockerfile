@@ -13,7 +13,6 @@ RUN npm install
 COPY . .
 
 RUN npm run build --workspace @hersov/shared
-RUN npm run prisma:generate --workspace @hersov/api
 RUN npm run build --workspace @hersov/api
 
 WORKDIR /app/apps/api

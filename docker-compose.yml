@@ -60,6 +60,8 @@ services:
       interval: 10s
       timeout: 3s
       retries: 20
+    volumes:
+      - imports_data:/data
     expose:
       - "3001"
     networks:
@@ -80,6 +82,8 @@ services:
     depends_on:
       api:
         condition: service_healthy
+    volumes:
+      - imports_data:/data
     networks:
       - internal
 
@@ -140,3 +144,4 @@ volumes:
   redis_data:
   caddy_data:
   caddy_config:
+  imports_data:

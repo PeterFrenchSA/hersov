@@ -7,10 +7,13 @@ import { MeController } from './auth/me.controller';
 import { ContactsController } from './contacts/contacts.controller';
 import { EnrichmentController } from './enrichment/enrichment.controller';
 import { ChatController } from './chat/chat.controller';
+import { ImportController } from './import/import.controller';
 import { AuthService } from './auth/auth.service';
 import { ContactsService } from './contacts/contacts.service';
 import { AuditService } from './audit/audit.service';
 import { RolesGuard } from './common/roles.guard';
+import { ImportService } from './import/import.service';
+import { ImportQueueService } from './import/import-queue.service';
 
 @Module({
   imports: [ConfigModule.forRoot({ isGlobal: true }), PrismaModule],
@@ -21,7 +24,8 @@ import { RolesGuard } from './common/roles.guard';
     ContactsController,
     EnrichmentController,
     ChatController,
+    ImportController,
   ],
-  providers: [AuthService, ContactsService, AuditService, RolesGuard],
+  providers: [AuthService, ContactsService, AuditService, RolesGuard, ImportService, ImportQueueService],
 })
 export class AppModule {}

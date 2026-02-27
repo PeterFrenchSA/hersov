@@ -1,16 +1,17 @@
-# Mini CRM (PR #1 Skeleton)
+# Mini CRM (PR #2 Import Pipeline)
 
-PR #1 delivers a working deployable skeleton for Ubuntu 24.04 with:
-- NestJS API (`apps/api`) + Prisma/PostgreSQL
-- Next.js web app (`apps/web`)
-- BullMQ worker baseline (`apps/worker`)
-- Shared zod schemas/types (`packages/shared`)
+PR #2 extends the deployed skeleton with a full CSV import workflow:
+- CSV upload (`/api/import/csv`)
+- header mapping + delimiter config (`/api/import/:batchId/mapping`)
+- background import processing via BullMQ (`import:process`)
+- progress/status polling (`/api/import/:batchId/status`)
+- results view (`/api/import/:batchId/results`)
+- UI flow at `/import`
 
 Deferred to later PRs:
-- CSV import pipeline
-- Enrichment providers and runs implementation
-- Embeddings generation pipeline
-- GPT tool-calling chat implementation
+- external enrichment providers
+- LLM parsing of notes/tags
+- embeddings generation and GPT query/chat
 
 ## Tech choices
 
@@ -18,17 +19,17 @@ Deferred to later PRs:
 - Runtime: Node.js LTS + TypeScript
 - API: NestJS
 - Web: Next.js App Router
+- Worker: BullMQ + Redis
 - DB: PostgreSQL 16 + `pg_trgm` + `vector`
-- Queue: Redis + BullMQ
 - ORM: Prisma
 - Reverse proxy/TLS: Caddy
 
 ## Repo layout
 
-- `apps/api`: API, auth/session, contacts endpoints, Prisma schema/migrations, bootstrap admin script
-- `apps/web`: login/dashboard/contacts UI
-- `apps/worker`: Redis-connected idle worker on queue `default`
-- `packages/shared`: zod input schemas and shared types
+- `apps/api`: auth/session/RBAC, contacts API, import API, Prisma schema/migrations, bootstrap script
+- `apps/web`: login/dashboard/contacts/import UI
+- `apps/worker`: BullMQ worker including CSV import processor
+- `packages/shared`: shared zod schemas/types/constants
 
 ## Local development
 
@@ -37,73 +38,92 @@ Deferred to later PRs:
 2. Fill required values in `.env`:
    - `POSTGRES_PASSWORD`
    - `SESSION_SECRET`
-   - `APP_DOMAIN` and `APP_BASE_URL` for your environment
+   - `APP_DOMAIN` and `APP_BASE_URL`
 3. Install dependencies:
    - `npm install`
-4. Start infra services:
+4. Start infra:
    - `docker compose up -d postgres redis`
 5. Run migrations:
    - `docker compose run --rm api npx prisma migrate deploy`
-6. Start apps locally (separate terminals):
+6. Start apps (separate terminals):
    - `npm run start:dev --workspace @hersov/api`
    - `npm run dev --workspace @hersov/web`
    - `npm run start --workspace @hersov/worker`
 
 ## Production deploy (Ubuntu 24.04)
 
-Use the deploy script:
-
 ```bash
 sudo bash scripts/deploy.sh --repo <git-url> --branch main --dir /opt/mini-crm --domain <your-domain> --email <letsencrypt-email>
 ```
 
-What it does:
-- installs prerequisites (docker, compose plugin, ufw, etc.)
-- clones or updates repo
-- creates `.env` interactively if missing
+The deploy script:
+- installs prerequisites
+- clones/updates repo
+- creates `.env` interactively (if missing)
 - runs `docker compose build && docker compose up -d`
-- runs Prisma deploy migration inside `api`
-- runs bootstrap admin script inside `api`
-- installs/enables systemd unit `mini-crm.service`
+- runs Prisma migrations
+- runs bootstrap admin script
+- installs/enables `mini-crm.service`
 
 ## `.env` location
 
 - Production: `/opt/mini-crm/.env`
 - Local: `<repo-root>/.env`
 
+## Import env vars
+
+- `IMPORT_MAX_UPLOAD_MB` (default `50`)
+- `IMPORT_STORE_RAW_ROWS` (`true|false`, default `false`)
+- `IMPORT_FUZZY_THRESHOLD` (default `0.86`)
+- `IMPORT_BATCH_WRITE_INTERVAL_ROWS` (default `250`)
+
 ## Admin bootstrap
 
-Set these in `.env` before deploy:
+Set before deploy:
 - `BOOTSTRAP_ADMIN_EMAIL`
 - `BOOTSTRAP_ADMIN_PASSWORD`
 
-Then deploy script calls:
+Deploy calls:
 - `node dist/scripts/bootstrap-admin.js`
 
 Behavior:
-- no-ops if either variable is missing
-- no-ops if user already exists
-- otherwise creates `Admin` user and writes an audit log
+- no-op if either variable is missing
+- no-op if user already exists
+- otherwise creates Admin user and audit log
+
+## How to run an import
+
+1. Log in to the app.
+2. Open `/import`.
+3. Upload a `.csv` file.
+4. Map detected headers to canonical fields.
+5. Configure email/phone delimiters and save mapping.
+6. Start import.
+7. Watch progress and counters update.
+8. Review duplicate/error rows in results.
 
 ## Runtime checks
 
 - Health endpoint: `https://<domain>/api/health`
 - Login page: `https://<domain>/login`
+- Import page: `https://<domain>/import`
 
 ## Logs and operations
 
 - Tail all logs:
   - `docker compose logs -f --tail=200`
-- API logs only:
+- API logs:
   - `docker compose logs -f --tail=200 api`
+- Worker logs:
+  - `docker compose logs -f --tail=200 worker`
 - Restart stack:
   - `docker compose up -d`
-- Restart systemd service:
+- Restart service:
   - `sudo systemctl restart mini-crm.service`
 
 ## Migrations
 
-- Apply migrations in running stack:
+- Apply migrations:
   - `docker compose exec -T api sh -lc "npx prisma migrate deploy"`
 
 ## Backup / restore (Postgres)
@@ -124,12 +144,15 @@ cat backup.sql | docker compose exec -T postgres sh -lc 'psql -U "$POSTGRES_USER
 
 - Check service health:
   - `docker compose ps`
-- If TLS cert issuance fails:
-  - verify domain DNS points to VPS
-  - verify ports 80/443 open (`ufw status`)
-  - inspect caddy logs: `docker compose logs -f caddy`
-- If API migration/bootstrap fails:
-  - `docker compose logs -f api`
-  - rerun migration command manually
-- If site does not start on reboot:
-  - `sudo systemctl status mini-crm.service`
+- Import stuck in `processing`:
+  - check worker logs: `docker compose logs -f worker`
+  - verify Redis is healthy: `docker compose ps redis`
+- Import fails immediately:
+  - verify mapping was saved before start
+  - inspect batch errors from `/api/import/:batchId/results?outcome=error`
+- Upload rejected:
+  - verify file extension is `.csv`
+  - increase `IMPORT_MAX_UPLOAD_MB` if needed
+- TLS issues:
+  - verify DNS points to VPS and ports 80/443 are open
+  - inspect Caddy logs: `docker compose logs -f caddy`

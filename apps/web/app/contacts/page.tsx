@@ -20,6 +20,9 @@ type Contact = {
 export default function ContactsPage(): JSX.Element {
   const [query, setQuery] = useState('');
   const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState<'updated_at' | 'created_at' | 'name'>('updated_at');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [importBatchId, setImportBatchId] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -32,6 +35,11 @@ export default function ContactsPage(): JSX.Element {
       const params = new URLSearchParams({ page: '1', pageSize: '20' });
       if (search.trim()) {
         params.set('q', search.trim());
+      }
+      params.set('sortBy', sortBy);
+      params.set('sortDir', sortDir);
+      if (importBatchId.trim()) {
+        params.set('importBatchId', importBatchId.trim());
       }
 
       const response = await fetch(`/api/contacts?${params.toString()}`, {
@@ -55,7 +63,7 @@ export default function ContactsPage(): JSX.Element {
     };
 
     void load();
-  }, [search]);
+  }, [search, sortBy, sortDir, importBatchId]);
 
   const onSearch = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -72,6 +80,21 @@ export default function ContactsPage(): JSX.Element {
           placeholder="Search by name or company"
           onChange={(event) => setQuery(event.target.value)}
         />
+        <input
+          className="input"
+          value={importBatchId}
+          placeholder="Import batch UUID (optional)"
+          onChange={(event) => setImportBatchId(event.target.value)}
+        />
+        <select className="input" value={sortBy} onChange={(event) => setSortBy(event.target.value as 'updated_at' | 'created_at' | 'name')}>
+          <option value="updated_at">Sort: Updated</option>
+          <option value="created_at">Sort: Created</option>
+          <option value="name">Sort: Name</option>
+        </select>
+        <select className="input" value={sortDir} onChange={(event) => setSortDir(event.target.value as 'asc' | 'desc')}>
+          <option value="desc">Desc</option>
+          <option value="asc">Asc</option>
+        </select>
         <button className="button" type="submit">
           Search
         </button>

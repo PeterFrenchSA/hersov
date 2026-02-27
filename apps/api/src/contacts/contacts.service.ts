@@ -18,16 +18,26 @@ export class ContactsService {
     const pageSize = query.pageSize ?? 20;
     const q = query.q?.trim();
 
-    const where = q
-      ? {
-          OR: [
-            { fullName: { contains: q, mode: 'insensitive' as const } },
-            { firstName: { contains: q, mode: 'insensitive' as const } },
-            { lastName: { contains: q, mode: 'insensitive' as const } },
-            { currentCompany: { is: { name: { contains: q, mode: 'insensitive' as const } } } },
-          ],
-        }
-      : undefined;
+    const where = {
+      ...(q
+        ? {
+            OR: [
+              { fullName: { contains: q, mode: 'insensitive' as const } },
+              { firstName: { contains: q, mode: 'insensitive' as const } },
+              { lastName: { contains: q, mode: 'insensitive' as const } },
+              { currentCompany: { is: { name: { contains: q, mode: 'insensitive' as const } } } },
+            ],
+          }
+        : {}),
+      ...(query.importBatchId ? { sourceImportBatchId: query.importBatchId } : {}),
+    };
+
+    const orderBy =
+      query.sortBy === 'created_at'
+        ? { createdAt: query.sortDir }
+        : query.sortBy === 'name'
+          ? { fullName: query.sortDir }
+          : { updatedAt: query.sortDir };
 
     const [total, contacts] = await this.prisma.$transaction([
       this.prisma.contact.count({ where }),
@@ -35,7 +45,7 @@ export class ContactsService {
         where,
         skip: (page - 1) * pageSize,
         take: pageSize,
-        orderBy: { updatedAt: 'desc' },
+        orderBy,
         include: {
           currentCompany: true,
           contactMethods: true,

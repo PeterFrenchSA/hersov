@@ -11,6 +11,7 @@ export default function RootLayout({ children }: { children: ReactNode }): JSX.E
           <strong>Mini CRM</strong>
           <Link href="/dashboard">Dashboard</Link>
           <Link href="/contacts">Contacts</Link>
+          <Link href="/import">Import</Link>
           <div style={{ marginLeft: 'auto' }}>
             <LogoutButton />
           </div>

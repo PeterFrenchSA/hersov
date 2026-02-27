@@ -1,4 +1,3 @@
-import IORedis from 'ioredis';
 import { Worker } from 'bullmq';
 import {
   embeddingsBackfillJobName,
@@ -27,12 +26,9 @@ import {
   processInsightsUpsertContactJob,
 } from './insights/processor';
 import { closeInsightsDispatchQueue } from './insights/dispatch';
+import { getBullConnectionOptions } from './redis-connection';
 
-const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
-
-const connection = new IORedis(redisUrl, {
-  maxRetriesPerRequest: null,
-});
+const connection = getBullConnectionOptions();
 
 const worker = new Worker(
   importQueueName,
@@ -151,7 +147,6 @@ const shutdown = async (): Promise<void> => {
   await closeInsightsProcessor();
   await closeEmbeddingsDispatchQueue();
   await closeInsightsDispatchQueue();
-  await connection.quit();
   process.exit(0);
 };
 

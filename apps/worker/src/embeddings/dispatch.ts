@@ -1,19 +1,13 @@
-import IORedis from 'ioredis';
 import { Queue } from 'bullmq';
 import { embeddingsUpsertContactJobName, importQueueName } from '@hersov/shared';
+import { getBullConnectionOptions } from '../redis-connection';
 
-let connection: IORedis | undefined;
 let queue: Queue | undefined;
 
 function getQueue(): Queue {
   if (!queue) {
-    const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
-    connection = new IORedis(redisUrl, {
-      maxRetriesPerRequest: null,
-    });
-
     queue = new Queue(importQueueName, {
-      connection,
+      connection: getBullConnectionOptions(),
     });
   }
 
@@ -48,10 +42,5 @@ export async function closeEmbeddingsDispatchQueue(): Promise<void> {
   if (queue) {
     await queue.close();
     queue = undefined;
-  }
-
-  if (connection) {
-    await connection.quit();
-    connection = undefined;
   }
 }

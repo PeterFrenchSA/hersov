@@ -1,37 +1,41 @@
-# Mini CRM (PR #4 Embeddings + Semantic Search + GPT Chat)
+# Mini CRM (PR #5 Network Intelligence + Review Workflow)
 
-PR #4 extends the deployed CRM/import/enrichment baseline with embeddings storage/jobs, semantic search, and GPT chat with server-side tool calling + SSE streaming.
+PR #5 extends the CRM baseline with network intelligence from notes: structured insights extraction, conservative entity/relationship suggestioning, human review queue, and connector scoring.
 
 Implemented in this PR:
 - Prisma migration updates for:
-  - `embeddings` metadata (`model`, `dims`, `hash`, `updated_at`)
-  - `chat_threads` and `chat_messages`
-  - pgvector/trgm extension ensure + vector index
-- worker embedding jobs:
-  - `embeddings:upsertContact`
-  - `embeddings:backfill`
-- deterministic embedding text builder + hash-based staleness detection
+  - `contact_insights`
+  - `entities`, `entity_aliases`, `contact_entity_mentions`
+  - `relationships`
+  - `review_queue`
+  - `llm_prompt_versions`, `llm_runs`
+  - `contact_scores`
+- worker network-intelligence jobs:
+  - `insights:upsertContact`
+  - `insights:backfill`
+  - `graph:recomputeScores`
+- strict notes extraction schema with provenance:
+  - model
+  - prompt version
+  - timestamp and evidence snippets
+- conservative suggestion flow:
+  - tags/entities/relationships become review items first
+  - optional auto-approval only for high-confidence fill-missing actions
 - API endpoints:
-  - `POST /api/embeddings/backfill`
-  - `GET /api/embeddings/status`
-  - `GET /api/search/semantic`
-  - `POST /api/chat` (SSE)
-- chat tool/function calling:
-  - `crm.searchContacts`
-  - `crm.aggregateContacts`
-  - `crm.getContactById`
-  - `crm.semanticSearch`
-- data minimization controls in chat:
-  - tool row caps (`default <=20`, hard max `50`)
-  - sensitive field redaction by RBAC + explicit request intent
-  - mass extraction refusal in chat
+  - `POST /api/insights/backfill`
+  - `GET /api/insights/dashboard`
+  - `GET /api/review`
+  - `POST /api/review/:id/approve`
+  - `POST /api/review/:id/reject`
+  - `GET /api/contacts/:id/insights`
+  - `GET /api/contacts/:id/network`
+  - `POST /api/graph/recompute`
 - UI updates:
-  - `/chat` page with streamed responses and tool activity
-  - `/contacts` semantic search mode
-  - `/admin/settings` embeddings status + backfill controls
+  - `/review` queue page
+  - `/insights` dashboard page
+  - contact detail tabs: Profile / Insights / Network
 
 Deferred to later PRs:
-- LLM parsing of notes/tags/entities
 - browser automation scraping
 
 ## Tech choices
@@ -126,6 +130,15 @@ Run/merge controls:
 - `CHAT_MAX_RESULTS_PER_TOOL` (default `20`, hard max `50`)
 - `CHAT_MAX_INPUT_CHARS` (default `4000`, max `12000`)
 
+## Network intelligence env vars
+
+- `INSIGHTS_ENABLED` (`true|false`, default `false`)
+- `OPENAI_INSIGHTS_MODEL` (default `gpt-4.1-mini`)
+- `INSIGHTS_MAX_NOTES_CHARS` (default `4000`)
+- `INSIGHTS_STALE_AFTER_DAYS` (default `30`)
+- `INSIGHTS_CONFIDENCE_THRESHOLD` (default `0.9`)
+- `INSIGHTS_BATCH_SIZE` (default `100`)
+
 ## Admin bootstrap
 
 Set before deploy:
@@ -190,6 +203,26 @@ Security notes:
 - Tool outputs are capped and redacted by default.
 - Bulk/mass extraction requests are refused in chat; use export flows instead.
 
+## How network intelligence works
+
+1. Queue extraction via `POST /api/insights/backfill` (Admin/Analyst).
+2. Worker extracts strict JSON from `notes_raw` using minimal contact fields.
+3. Output is validated server-side and stored in `contact_insights` + `llm_runs`.
+4. Candidate tags/entities/relationships are generated with evidence + provenance.
+5. Suggestions enter `/review` (`pending`) unless high-confidence fill-missing policy auto-approves.
+6. Approved suggestions become canonical:
+   - tags -> `contact_tags`
+   - entity mentions -> `contact_entity_mentions` (approved source)
+   - relationships -> `relationships.status=approved`
+7. Connector scores are recomputed by `graph:recomputeScores` and shown on `/insights`.
+
+## How review works
+
+- Open `/review`, filter by kind/status, inspect evidence and payload.
+- Approve commits canonical changes based on kind.
+- Reject preserves traceability and marks suggestion as rejected.
+- All decisions are audit-logged.
+
 ## Provider compliance note
 
 Use provider APIs only under valid credentials and compliant terms of service. This project does not implement unauthorized scraping bypasses.
@@ -201,6 +234,8 @@ Use provider APIs only under valid credentials and compliant terms of service. T
 - Import page: `https://<domain>/import`
 - Enrichment page: `https://<domain>/enrichment`
 - Chat page: `https://<domain>/chat`
+- Review page: `https://<domain>/review`
+- Insights dashboard: `https://<domain>/insights`
 
 ## Quality checks
 
@@ -252,6 +287,13 @@ cat backup.sql | docker compose exec -T postgres sh -lc 'psql -U "$POSTGRES_USER
   - confirm provider key/config in `/admin/settings`
 - Enrichment provider disabled:
   - verify provider key env vars are set in `.env`
+- Insights queue not processing:
+  - ensure `INSIGHTS_ENABLED=true` in `.env`
+  - verify worker logs for `insights:*` jobs
+  - confirm `OPENAI_API_KEY` and `OPENAI_INSIGHTS_MODEL`
+- Review queue empty unexpectedly:
+  - verify contacts have `notes_raw`
+  - run `POST /api/insights/backfill`
 - TLS issues:
   - verify DNS points to VPS and ports 80/443 are open
   - inspect Caddy logs: `docker compose logs -f caddy`

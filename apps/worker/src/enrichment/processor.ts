@@ -20,6 +20,7 @@ import { planContactMethodChanges, shouldApplyFieldUpdate } from './merge';
 import { createEnrichmentProviderRegistry } from './providers/registry';
 import { ProviderRateLimiter } from './rate-limiter';
 import { enqueueEmbeddingUpsertContactJobs } from '../embeddings/dispatch';
+import { enqueueInsightsUpsertContactJobs } from '../insights/dispatch';
 
 const prisma = new PrismaClient();
 
@@ -366,6 +367,18 @@ export function createEnrichmentRunProcessor(prismaClient: PrismaClient) {
           );
         } catch (error) {
           console.warn('Failed to enqueue embedding upserts after enrichment completion', error);
+        }
+
+        if (process.env.INSIGHTS_ENABLED === '1' || process.env.INSIGHTS_ENABLED === 'true') {
+          try {
+            await enqueueInsightsUpsertContactJobs(Array.from(contactsToEmbed), {
+              reason: `enrichment:${run.id}`,
+              fillMissingOnly: true,
+              requestedByUserId: run.createdByUserId ?? undefined,
+            });
+          } catch (error) {
+            console.warn('Failed to enqueue insights upserts after enrichment completion', error);
+          }
         }
       }
     } catch (error) {

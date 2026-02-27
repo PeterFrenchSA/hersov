@@ -103,6 +103,46 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
+  app.use(
+    '/api/insights/backfill',
+    rateLimit({
+      windowMs: 60_000,
+      limit: 8,
+      standardHeaders: true,
+      legacyHeaders: false,
+      skip: (request) => request.method !== 'POST',
+      message: { message: 'Too many insights backfill requests from this IP.' },
+    }),
+  );
+
+  app.use(
+    '/api/insights/backfill',
+    rateLimit({
+      windowMs: 60_000,
+      limit: 4,
+      standardHeaders: true,
+      legacyHeaders: false,
+      skip: (request) => request.method !== 'POST',
+      keyGenerator: (request) => {
+        const sessionUserId = (request as { session?: { user?: { id?: string } } }).session?.user?.id;
+        return sessionUserId ? `insights-user:${sessionUserId}` : `insights-anon:${request.ip}`;
+      },
+      message: { message: 'Too many insights backfill requests for this user.' },
+    }),
+  );
+
+  app.use(
+    '/api/graph/recompute',
+    rateLimit({
+      windowMs: 60_000,
+      limit: 4,
+      standardHeaders: true,
+      legacyHeaders: false,
+      skip: (request) => request.method !== 'POST',
+      message: { message: 'Too many graph recompute requests. Please wait.' },
+    }),
+  );
+
   const port = Number(process.env.PORT ?? 3001);
   await app.listen(port, '0.0.0.0');
 }

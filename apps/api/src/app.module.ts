@@ -11,6 +11,9 @@ import { ImportController } from './import/import.controller';
 import { AdminController } from './admin/admin.controller';
 import { EmbeddingsController } from './embeddings/embeddings.controller';
 import { SearchController } from './search/search.controller';
+import { InsightsController } from './insights/insights.controller';
+import { ReviewController } from './review/review.controller';
+import { GraphController } from './graph/graph.controller';
 import { AuthService } from './auth/auth.service';
 import { ContactsService } from './contacts/contacts.service';
 import { AuditService } from './audit/audit.service';
@@ -23,6 +26,9 @@ import { SemanticSearchService } from './search/semantic-search.service';
 import { OpenAiService } from './ai/openai.service';
 import { ChatService } from './chat/chat.service';
 import { ChatToolsService } from './chat/chat-tools.service';
+import { InsightsService } from './insights/insights.service';
+import { ReviewService } from './review/review.service';
+import { GraphService } from './graph/graph.service';
 
 @Module({
   imports: [ConfigModule.forRoot({ isGlobal: true }), PrismaModule],
@@ -37,6 +43,9 @@ import { ChatToolsService } from './chat/chat-tools.service';
     AdminController,
     EmbeddingsController,
     SearchController,
+    InsightsController,
+    ReviewController,
+    GraphController,
   ],
   providers: [
     AuthService,
@@ -51,6 +60,9 @@ import { ChatToolsService } from './chat/chat-tools.service';
     OpenAiService,
     ChatService,
     ChatToolsService,
+    InsightsService,
+    ReviewService,
+    GraphService,
   ],
 })
 export class AppModule {}

@@ -59,6 +59,39 @@ enum ChatMessageRole {
   SYSTEM    @map("system")
 }
 
+enum EntityType {
+  COMPANY   @map("company")
+  EVENT     @map("event")
+  LOCATION  @map("location")
+  TOPIC     @map("topic")
+  PERSON_REF @map("person_ref")
+}
+
+enum RelationshipStatus {
+  SUGGESTED @map("suggested")
+  APPROVED  @map("approved")
+  REJECTED  @map("rejected")
+}
+
+enum ReviewKind {
+  TAG          @map("tag")
+  ENTITY       @map("entity")
+  RELATIONSHIP @map("relationship")
+}
+
+enum ReviewStatus {
+  PENDING  @map("pending")
+  APPROVED @map("approved")
+  REJECTED @map("rejected")
+}
+
+enum LlmRunStatus {
+  QUEUED     @map("queued")
+  PROCESSING @map("processing")
+  COMPLETED  @map("completed")
+  FAILED     @map("failed")
+}
+
 model User {
   id             String          @id @default(cuid())
   email          String          @unique
@@ -70,6 +103,8 @@ model User {
   enrichmentRuns EnrichmentRun[] @relation("RunCreator")
   importBatches  ImportBatch[]   @relation("ImportCreator")
   chatThreads    ChatThread[]
+  reviewQueueCreated ReviewQueue[] @relation("ReviewCreatedBy")
+  reviewQueueReviewed ReviewQueue[] @relation("ReviewReviewedBy")
 
   @@map("users")
 }
@@ -112,6 +147,11 @@ model Contact {
   enrichmentResults EnrichmentResult[]
   embeddings       Embedding[]
   importRows       ImportRow[]
+  insights         ContactInsight?
+  entityMentions   ContactEntityMention[]
+  relationshipsFrom Relationship[] @relation("RelationshipFromContact")
+  relationshipsTo  Relationship[] @relation("RelationshipToContact")
+  score            ContactScore?
 
   @@index([fullName], map: "idx_contacts_full_name")
   @@index([currentCompanyId], map: "idx_contacts_company_id")
@@ -234,6 +274,147 @@ model ContactFieldConfidence {
   @@id([contactId, field])
   @@index([updatedAt], map: "idx_contact_field_confidence_updated_at")
   @@map("contact_field_confidence")
+}
+
+model ContactInsight {
+  contactId          String   @id @map("contact_id")
+  notesHash          String   @map("notes_hash")
+  insightsJson       Json     @map("insights_json")
+  model              String
+  promptVersion      String   @map("prompt_version")
+  confidenceOverall  Float    @default(0) @map("confidence_overall")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+  contact            Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([updatedAt], map: "idx_contact_insights_updated_at")
+  @@map("contact_insights")
+}
+
+model Entity {
+  id            String                 @id @default(cuid())
+  type          EntityType
+  canonicalName String                 @map("canonical_name")
+  externalUrl   String?                @map("external_url")
+  createdAt     DateTime               @default(now()) @map("created_at")
+  aliases       EntityAlias[]
+  mentions      ContactEntityMention[]
+  relationships Relationship[]
+
+  @@unique([type, canonicalName], map: "uq_entities_type_canonical_name")
+  @@index([type, canonicalName], map: "idx_entities_type_canonical_name")
+  @@map("entities")
+}
+
+model EntityAlias {
+  id        String   @id @default(cuid())
+  entityId  String   @map("entity_id")
+  alias     String
+  createdAt DateTime @default(now()) @map("created_at")
+  entity    Entity   @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@unique([alias], map: "uq_entity_aliases_alias")
+  @@index([entityId], map: "idx_entity_aliases_entity_id")
+  @@map("entity_aliases")
+}
+
+model ContactEntityMention {
+  id              String   @id @default(cuid())
+  contactId       String   @map("contact_id")
+  entityId        String   @map("entity_id")
+  source          String
+  evidenceSnippet String   @map("evidence_snippet")
+  confidence      Float
+  createdAt       DateTime @default(now()) @map("created_at")
+  contact         Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  entity          Entity   @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, entityId], map: "uq_contact_entity_mentions_contact_entity")
+  @@index([contactId], map: "idx_contact_entity_mentions_contact_id")
+  @@index([entityId], map: "idx_contact_entity_mentions_entity_id")
+  @@map("contact_entity_mentions")
+}
+
+model Relationship {
+  id              String             @id @default(cuid())
+  fromContactId   String             @map("from_contact_id")
+  toContactId     String?            @map("to_contact_id")
+  type            String
+  entityId        String?            @map("entity_id")
+  evidenceSnippet String             @map("evidence_snippet")
+  confidence      Float
+  status          RelationshipStatus @default(SUGGESTED)
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+  fromContact     Contact            @relation("RelationshipFromContact", fields: [fromContactId], references: [id], onDelete: Cascade)
+  toContact       Contact?           @relation("RelationshipToContact", fields: [toContactId], references: [id], onDelete: SetNull)
+  entity          Entity?            @relation(fields: [entityId], references: [id], onDelete: SetNull)
+
+  @@index([fromContactId, status], map: "idx_relationships_from_status")
+  @@index([toContactId, status], map: "idx_relationships_to_status")
+  @@index([entityId], map: "idx_relationships_entity_id")
+  @@index([status, createdAt], map: "idx_relationships_status_created_at")
+  @@map("relationships")
+}
+
+model ReviewQueue {
+  id               String       @id @default(cuid())
+  kind             ReviewKind
+  payloadJson      Json         @map("payload_json")
+  status           ReviewStatus @default(PENDING)
+  createdByUserId  String       @map("created_by_user_id")
+  reviewedByUserId String?      @map("reviewed_by_user_id")
+  reviewedAt       DateTime?    @map("reviewed_at")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  createdByUser    User         @relation("ReviewCreatedBy", fields: [createdByUserId], references: [id], onDelete: Cascade)
+  reviewedByUser   User?        @relation("ReviewReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, kind, createdAt], map: "idx_review_queue_status_kind_created_at")
+  @@index([createdByUserId], map: "idx_review_queue_created_by")
+  @@index([reviewedByUserId], map: "idx_review_queue_reviewed_by")
+  @@map("review_queue")
+}
+
+model LlmPromptVersion {
+  id        String   @id @default(cuid())
+  name      String
+  version   String
+  content   String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([name, version], map: "uq_llm_prompt_versions_name_version")
+  @@index([createdAt], map: "idx_llm_prompt_versions_created_at")
+  @@map("llm_prompt_versions")
+}
+
+model LlmRun {
+  id            String       @id @default(cuid())
+  purpose       String
+  model         String
+  promptVersion String       @map("prompt_version")
+  inputHash     String       @map("input_hash")
+  status        LlmRunStatus
+  tokensIn      Int?         @map("tokens_in")
+  tokensOut     Int?         @map("tokens_out")
+  latencyMs     Int?         @map("latency_ms")
+  errorJson     Json?        @map("error_json")
+  createdAt     DateTime     @default(now()) @map("created_at")
+
+  @@index([purpose, createdAt], map: "idx_llm_runs_purpose_created_at")
+  @@index([status, createdAt], map: "idx_llm_runs_status_created_at")
+  @@map("llm_runs")
+}
+
+model ContactScore {
+  contactId      String   @id @map("contact_id")
+  connectorScore Float    @map("connector_score")
+  influenceScore Float?   @map("influence_score")
+  computedAt     DateTime @map("computed_at")
+  contact        Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([connectorScore], map: "idx_contact_scores_connector_score")
+  @@index([computedAt], map: "idx_contact_scores_computed_at")
+  @@map("contact_scores")
 }
 
 model Embedding {

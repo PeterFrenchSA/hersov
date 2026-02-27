@@ -4,9 +4,13 @@ import {
   embeddingsBackfillJobName,
   embeddingsUpsertContactJobName,
   enrichmentJobName,
+  graphRecomputeScoresJobName,
   importJobName,
   importQueueName,
   type EmbeddingsBackfillInput,
+  type InsightsBackfillInput,
+  insightsBackfillJobName,
+  insightsUpsertContactJobName,
 } from '@hersov/shared';
 import { closeImportProcessor, processImportJob } from './import/processor';
 import { closeEnrichmentRunProcessor, processEnrichmentRun } from './enrichment/processor';
@@ -16,6 +20,13 @@ import {
   processEmbeddingsUpsertContactJob,
 } from './embeddings/processor';
 import { closeEmbeddingsDispatchQueue } from './embeddings/dispatch';
+import {
+  closeInsightsProcessor,
+  processGraphRecomputeScoresJob,
+  processInsightsBackfillJob,
+  processInsightsUpsertContactJob,
+} from './insights/processor';
+import { closeInsightsDispatchQueue } from './insights/dispatch';
 
 const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
 
@@ -69,6 +80,45 @@ const worker = new Worker(
       return;
     }
 
+    if (job.name === insightsUpsertContactJobName) {
+      const payload = job.data as {
+        contactId?: string;
+        force?: boolean;
+        fillMissingOnly?: boolean;
+        requestedByUserId?: string;
+        reason?: string;
+      };
+      if (!payload.contactId) {
+        throw new Error('Missing contactId for insights upsert job');
+      }
+
+      await processInsightsUpsertContactJob({
+        contactId: payload.contactId,
+        force: payload.force,
+        fillMissingOnly: payload.fillMissingOnly,
+        requestedByUserId: payload.requestedByUserId,
+        reason: payload.reason,
+      });
+      return;
+    }
+
+    if (job.name === insightsBackfillJobName) {
+      const payload = job.data as { filters?: unknown; requestedByUserId?: string };
+      await processInsightsBackfillJob({
+        filters: payload.filters as InsightsBackfillInput | undefined,
+        requestedByUserId: payload.requestedByUserId,
+      });
+      return;
+    }
+
+    if (job.name === graphRecomputeScoresJobName) {
+      const payload = job.data as { requestedByUserId?: string };
+      await processGraphRecomputeScoresJob({
+        requestedByUserId: payload.requestedByUserId,
+      });
+      return;
+    }
+
     throw new Error(`Unsupported job name: ${job.name}`);
   },
   {
@@ -98,7 +148,9 @@ const shutdown = async (): Promise<void> => {
   await closeImportProcessor();
   await closeEnrichmentRunProcessor();
   await closeEmbeddingsProcessor();
+  await closeInsightsProcessor();
   await closeEmbeddingsDispatchQueue();
+  await closeInsightsDispatchQueue();
   await connection.quit();
   process.exit(0);
 };

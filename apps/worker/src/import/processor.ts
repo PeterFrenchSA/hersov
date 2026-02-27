@@ -13,6 +13,7 @@ import { importColumnMappingSchema, type ImportColumnMappingInput } from '@herso
 import { resolveDeterministicMatch } from './dedupe';
 import { normalizeCsvRow, type NormalizedImportCandidate } from './normalization';
 import { enqueueEmbeddingUpsertContactJobs } from '../embeddings/dispatch';
+import { enqueueInsightsUpsertContactJobs } from '../insights/dispatch';
 
 export interface ImportJobPayload {
   batchId: string;
@@ -234,6 +235,18 @@ export function createImportProcessor(prismaClient: PrismaClient) {
         );
       } catch (error) {
         console.warn('Failed to enqueue embedding upserts after import completion', error);
+      }
+
+      if (process.env.INSIGHTS_ENABLED === '1' || process.env.INSIGHTS_ENABLED === 'true') {
+        try {
+          await enqueueInsightsUpsertContactJobs(Array.from(contactsToEmbed), {
+            reason: `import:${batchId}`,
+            fillMissingOnly: true,
+            requestedByUserId: batch.createdByUserId ?? undefined,
+          });
+        } catch (error) {
+          console.warn('Failed to enqueue insights upserts after import completion', error);
+        }
       }
     } catch (error) {
       await flushRowsBuffer(prismaClient, rowRecordsBuffer);

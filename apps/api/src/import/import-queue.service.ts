@@ -6,9 +6,13 @@ import {
   embeddingsBackfillJobName,
   embeddingsUpsertContactJobName,
   enrichmentJobName,
+  graphRecomputeScoresJobName,
   importJobName,
   importQueueName,
+  insightsBackfillJobName,
+  insightsUpsertContactJobName,
   type EmbeddingsBackfillInput,
+  type InsightsBackfillInput,
 } from '@hersov/shared';
 
 @Injectable()
@@ -79,6 +83,76 @@ export class ImportQueueService implements OnModuleDestroy {
         removeOnFail: 1000,
       },
     );
+  }
+
+  async enqueueInsightsBackfill(
+    filters: InsightsBackfillInput,
+    requestedByUserId?: string,
+  ): Promise<string> {
+    const queue = this.getQueue();
+    const jobId = `insights:backfill:${randomUUID()}`;
+
+    await queue.add(
+      insightsBackfillJobName,
+      {
+        filters,
+        requestedByUserId,
+      },
+      {
+        jobId,
+        removeOnComplete: 1000,
+        removeOnFail: 1000,
+      },
+    );
+
+    return jobId;
+  }
+
+  async enqueueInsightsUpsertContact(
+    contactId: string,
+    options?: {
+      reason?: string;
+      force?: boolean;
+      fillMissingOnly?: boolean;
+      requestedByUserId?: string;
+    },
+  ): Promise<void> {
+    const queue = this.getQueue();
+
+    await queue.add(
+      insightsUpsertContactJobName,
+      {
+        contactId,
+        reason: options?.reason ?? 'manual',
+        force: options?.force ?? false,
+        fillMissingOnly: options?.fillMissingOnly ?? true,
+        requestedByUserId: options?.requestedByUserId,
+      },
+      {
+        jobId: `insights:upsert:${contactId}`,
+        removeOnComplete: 1000,
+        removeOnFail: 1000,
+      },
+    );
+  }
+
+  async enqueueGraphRecomputeScores(requestedByUserId?: string): Promise<string> {
+    const queue = this.getQueue();
+    const jobId = `graph:recompute:${randomUUID()}`;
+
+    await queue.add(
+      graphRecomputeScoresJobName,
+      {
+        requestedByUserId,
+      },
+      {
+        jobId,
+        removeOnComplete: 1000,
+        removeOnFail: 1000,
+      },
+    );
+
+    return jobId;
   }
 
   async onModuleDestroy(): Promise<void> {

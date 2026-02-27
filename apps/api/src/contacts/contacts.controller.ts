@@ -40,6 +40,16 @@ export class ContactsController {
     return this.contactsService.getById(params.id);
   }
 
+  @Get(':id/insights')
+  async getInsights(@Param(new ZodValidationPipe(idParamSchema)) params: IdParamInput) {
+    return this.contactsService.getInsights(params.id);
+  }
+
+  @Get(':id/network')
+  async getNetwork(@Param(new ZodValidationPipe(idParamSchema)) params: IdParamInput) {
+    return this.contactsService.getNetwork(params.id);
+  }
+
   @Patch(':id')
   @UseGuards(RolesGuard)
   @Roles('Admin', 'Analyst')

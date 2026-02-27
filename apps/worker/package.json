@@ -1,0 +1,16 @@
+{
+  "name": "@hersov/worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "lint": "eslint \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "echo \"No worker tests yet\""
+  },
+  "dependencies": {
+    "bullmq": "^5.43.2",
+    "ioredis": "^5.4.2"
+  }
+}

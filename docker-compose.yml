@@ -120,7 +120,7 @@ services:
       # used for ACME registration
       ACME_EMAIL: ${LETSENCRYPT_EMAIL}
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

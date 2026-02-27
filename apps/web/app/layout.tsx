@@ -1,0 +1,22 @@
+import type { ReactNode } from 'react';
+import Link from 'next/link';
+import './globals.css';
+import { LogoutButton } from '../components/logout-button';
+
+export default function RootLayout({ children }: { children: ReactNode }): JSX.Element {
+  return (
+    <html lang="en">
+      <body>
+        <header className="nav">
+          <strong>Mini CRM</strong>
+          <Link href="/dashboard">Dashboard</Link>
+          <Link href="/contacts">Contacts</Link>
+          <div style={{ marginLeft: 'auto' }}>
+            <LogoutButton />
+          </div>
+        </header>
+        <main>{children}</main>
+      </body>
+    </html>
+  );
+}

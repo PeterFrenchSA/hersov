@@ -1,0 +1,204 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  Admin
+  Analyst
+  ReadOnly
+}
+
+enum ContactMethodType {
+  EMAIL    @map("email")
+  PHONE    @map("phone")
+  WEBSITE  @map("website")
+  LINKEDIN @map("linkedin")
+  TWITTER  @map("twitter")
+  OTHER    @map("other")
+}
+
+enum EmbeddingKind {
+  NOTES   @map("notes")
+  PROFILE @map("profile")
+  COMPANY @map("company")
+}
+
+model User {
+  id             String          @id @default(cuid())
+  email          String          @unique
+  passwordHash   String          @map("password_hash")
+  role           Role            @default(ReadOnly)
+  createdAt      DateTime        @default(now()) @map("created_at")
+  lastLoginAt    DateTime?       @map("last_login_at")
+  auditLogs      AuditLog[]      @relation("AuditActor")
+  enrichmentRuns EnrichmentRun[] @relation("RunCreator")
+
+  @@map("users")
+}
+
+model Company {
+  id          String    @id @default(cuid())
+  name        String
+  domain      String?
+  industry    String?
+  hqCity      String?   @map("hq_city")
+  hqCountry   String?   @map("hq_country")
+  sizeRange   String?   @map("size_range")
+  linkedinUrl String?   @map("linkedin_url")
+  contacts    Contact[]
+
+  @@index([name], map: "idx_companies_name")
+  @@map("companies")
+}
+
+model Contact {
+  id               String             @id @default(cuid())
+  firstName        String?            @map("first_name")
+  lastName         String?            @map("last_name")
+  fullName         String             @map("full_name")
+  notesRaw         String?            @map("notes_raw")
+  locationCity     String?            @map("location_city")
+  locationCountry  String?            @map("location_country")
+  currentTitle     String?            @map("current_title")
+  currentCompanyId String?            @map("current_company_id")
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
+  lastEnrichedAt   DateTime?          @map("last_enriched_at")
+  currentCompany   Company?           @relation(fields: [currentCompanyId], references: [id], onDelete: SetNull)
+  contactMethods   ContactMethod[]
+  tags             ContactTag[]
+  events           ContactEvent[]
+  enrichmentResults EnrichmentResult[]
+  embeddings       Embedding[]
+
+  @@index([fullName], map: "idx_contacts_full_name")
+  @@index([currentCompanyId], map: "idx_contacts_company_id")
+  @@map("contacts")
+}
+
+model ContactMethod {
+  id         String            @id @default(cuid())
+  contactId  String            @map("contact_id")
+  type       ContactMethodType
+  value      String
+  isPrimary  Boolean           @default(false) @map("is_primary")
+  verifiedAt DateTime?         @map("verified_at")
+  source     String?
+  contact    Contact           @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([value], map: "idx_contact_methods_value")
+  @@index([contactId], map: "idx_contact_methods_contact_id")
+  @@map("contact_methods")
+}
+
+model Tag {
+  id          String       @id @default(cuid())
+  name        String
+  category    String
+  contactTags ContactTag[]
+
+  @@map("tags")
+}
+
+model ContactTag {
+  contactId  String   @map("contact_id")
+  tagId      String   @map("tag_id")
+  confidence Float?
+  source     String?
+  contact    Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  tag        Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([contactId, tagId])
+  @@map("contact_tags")
+}
+
+model Event {
+  id            String         @id @default(cuid())
+  name          String
+  year          Int?
+  location      String?
+  type          String?
+  contactEvents ContactEvent[]
+
+  @@map("events")
+}
+
+model ContactEvent {
+  contactId   String  @map("contact_id")
+  eventId     String  @map("event_id")
+  contextNote String? @map("context_note")
+  contact     Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  event       Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@id([contactId, eventId])
+  @@map("contact_events")
+}
+
+model EnrichmentRun {
+  id              String             @id @default(cuid())
+  status          String
+  startedAt       DateTime?          @map("started_at")
+  finishedAt      DateTime?          @map("finished_at")
+  createdByUserId String?            @map("created_by_user_id")
+  configJson      Json?              @map("config_json")
+  statsJson       Json?              @map("stats_json")
+  createdByUser   User?              @relation("RunCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  results         EnrichmentResult[]
+
+  @@index([createdByUserId], map: "idx_enrichment_runs_created_by")
+  @@map("enrichment_runs")
+}
+
+model EnrichmentResult {
+  id          String        @id @default(cuid())
+  runId       String        @map("run_id")
+  contactId   String        @map("contact_id")
+  field       String
+  oldValue    String?       @map("old_value")
+  newValue    String?       @map("new_value")
+  confidence  Float?
+  provider    String
+  providerRef String?       @map("provider_ref")
+  evidenceUrl String?       @map("evidence_url")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  run         EnrichmentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  contact     Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([runId], map: "idx_enrichment_results_run_id")
+  @@index([contactId], map: "idx_enrichment_results_contact_id")
+  @@map("enrichment_results")
+}
+
+model Embedding {
+  id        String        @id @default(cuid())
+  contactId String        @map("contact_id")
+  kind      EmbeddingKind
+  vector    Unsupported("vector")?
+  text      String?
+  createdAt DateTime      @default(now()) @map("created_at")
+  contact   Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([contactId], map: "idx_embeddings_contact_id")
+  @@map("embeddings")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorUserId String? @map("actor_user_id")
+  action     String
+  entityType String?  @map("entity_type")
+  entityId   String?  @map("entity_id")
+  metaJson   Json?    @map("meta_json")
+  ip         String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  actorUser  User?    @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([action], map: "idx_audit_logs_action")
+  @@index([createdAt], map: "idx_audit_logs_created_at")
+  @@map("audit_logs")
+}

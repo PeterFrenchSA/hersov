@@ -44,6 +44,14 @@ enum ImportRowOutcome {
   ERROR     @map("error")
 }
 
+enum EnrichmentRunStatus {
+  QUEUED     @map("queued")
+  PROCESSING @map("processing")
+  COMPLETED  @map("completed")
+  FAILED     @map("failed")
+  CANCELED   @map("canceled")
+}
+
 model User {
   id             String          @id @default(cuid())
   email          String          @unique
@@ -91,6 +99,7 @@ model Contact {
   sourceImportBatch ImportBatch?      @relation(fields: [sourceImportBatchId], references: [id], onDelete: SetNull)
   contactMethods   ContactMethod[]
   tags             ContactTag[]
+  fieldConfidence  ContactFieldConfidence[]
   events           ContactEvent[]
   enrichmentResults EnrichmentResult[]
   embeddings       Embedding[]
@@ -114,6 +123,8 @@ model ContactMethod {
 
   @@index([value], map: "idx_contact_methods_value")
   @@index([contactId], map: "idx_contact_methods_contact_id")
+  @@index([type, value], map: "idx_contact_methods_type_value")
+  @@unique([contactId, type, value], map: "uq_contact_methods_contact_type_value")
   @@map("contact_methods")
 }
 
@@ -123,6 +134,7 @@ model Tag {
   category    String
   contactTags ContactTag[]
 
+  @@unique([name, category], map: "uq_tags_name_category")
   @@map("tags")
 }
 
@@ -161,16 +173,24 @@ model ContactEvent {
 }
 
 model EnrichmentRun {
-  id              String             @id @default(cuid())
-  status          String
+  id              String              @id @default(uuid())
+  status          EnrichmentRunStatus @default(QUEUED)
+  createdAt       DateTime            @default(now()) @map("created_at")
   startedAt       DateTime?          @map("started_at")
   finishedAt      DateTime?          @map("finished_at")
   createdByUserId String?            @map("created_by_user_id")
   configJson      Json?              @map("config_json")
   statsJson       Json?              @map("stats_json")
+  totalTargets    Int                @default(0) @map("total_targets")
+  processedTargets Int               @default(0) @map("processed_targets")
+  updatedContacts Int                @default(0) @map("updated_contacts")
+  skippedContacts Int                @default(0) @map("skipped_contacts")
+  errorCount      Int                @default(0) @map("error_count")
+  errorSampleJson Json?              @map("error_sample_json")
   createdByUser   User?              @relation("RunCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
   results         EnrichmentResult[]
 
+  @@index([status, createdAt], map: "idx_enrichment_runs_status_created_at")
   @@index([createdByUserId], map: "idx_enrichment_runs_created_by")
   @@map("enrichment_runs")
 }
@@ -190,9 +210,22 @@ model EnrichmentResult {
   run         EnrichmentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
   contact     Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
-  @@index([runId], map: "idx_enrichment_results_run_id")
-  @@index([contactId], map: "idx_enrichment_results_contact_id")
+  @@index([runId, createdAt], map: "idx_enrichment_results_run_created_at")
+  @@index([contactId, createdAt], map: "idx_enrichment_results_contact_created_at")
   @@map("enrichment_results")
+}
+
+model ContactFieldConfidence {
+  contactId   String   @map("contact_id")
+  field       String
+  confidence  Float
+  provider    String
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  contact     Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@id([contactId, field])
+  @@index([updatedAt], map: "idx_contact_field_confidence_updated_at")
+  @@map("contact_field_confidence")
 }
 
 model Embedding {

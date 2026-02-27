@@ -1,7 +1,7 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import IORedis from 'ioredis';
-import { importJobName, importQueueName } from '@hersov/shared';
+import { enrichmentJobName, importJobName, importQueueName } from '@hersov/shared';
 
 @Injectable()
 export class ImportQueueService implements OnModuleDestroy {
@@ -16,6 +16,20 @@ export class ImportQueueService implements OnModuleDestroy {
       { batchId },
       {
         jobId: `import:process:${batchId}`,
+        removeOnComplete: 1000,
+        removeOnFail: 1000,
+      },
+    );
+  }
+
+  async enqueueEnrichmentRun(runId: string): Promise<void> {
+    const queue = this.getQueue();
+
+    await queue.add(
+      enrichmentJobName,
+      { runId },
+      {
+        jobId: `enrichment:run:${runId}`,
         removeOnComplete: 1000,
         removeOnFail: 1000,
       },

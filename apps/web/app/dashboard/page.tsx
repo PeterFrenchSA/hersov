@@ -13,7 +13,7 @@ export default function DashboardPage(): JSX.Element {
         </article>
         <article className="card">
           <h2>Enrichment jobs</h2>
-          <p>Deferred to later PRs.</p>
+          <p>Create and monitor runs from /enrichment.</p>
         </article>
       </div>
     </section>

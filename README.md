@@ -1,17 +1,29 @@
-# Mini CRM (PR #2 Import Pipeline)
+# Mini CRM (PR #3 Enrichment Framework)
 
-PR #2 extends the deployed skeleton with a full CSV import workflow:
-- CSV upload (`/api/import/csv`)
-- header mapping + delimiter config (`/api/import/:batchId/mapping`)
-- background import processing via BullMQ (`import:process`)
-- progress/status polling (`/api/import/:batchId/status`)
-- results view (`/api/import/:batchId/results`)
-- UI flow at `/import`
+PR #3 extends the deployed CRM/import baseline with enrichment run management, provider plugins, merge rules with confidence, and enrichment change logs.
+
+Implemented in this PR:
+- enrichment run APIs (`/api/enrichment/runs/*`)
+- worker job pipeline (`enrichment:run`) with throttled progress updates
+- provider framework with:
+  - `mock` provider (enabled by default)
+  - `apollo` provider skeleton (disabled unless `APOLLO_API_KEY` is set)
+- merge policies:
+  - `fill_missing_only`
+  - `overwrite_if_higher_confidence`
+- field-level change tracking in `enrichment_results`
+- provider status visibility in admin settings
+- UI pages:
+  - `/enrichment`
+  - `/enrichment/new`
+  - `/enrichment/:id`
+  - `/admin/settings`
 
 Deferred to later PRs:
-- external enrichment providers
-- LLM parsing of notes/tags
-- embeddings generation and GPT query/chat
+- LLM parsing of notes/tags/entities
+- embeddings generation pipeline
+- GPT chat endpoint/tool-calling
+- browser automation scraping
 
 ## Tech choices
 
@@ -26,9 +38,9 @@ Deferred to later PRs:
 
 ## Repo layout
 
-- `apps/api`: auth/session/RBAC, contacts API, import API, Prisma schema/migrations, bootstrap script
-- `apps/web`: login/dashboard/contacts/import UI
-- `apps/worker`: BullMQ worker including CSV import processor
+- `apps/api`: auth/session/RBAC, contacts/import/enrichment APIs, Prisma schema+migrations, bootstrap script
+- `apps/web`: login/dashboard/contacts/import/enrichment/admin pages
+- `apps/worker`: BullMQ worker with CSV import + enrichment processors
 - `packages/shared`: shared zod schemas/types/constants
 
 ## Local development
@@ -77,6 +89,23 @@ The deploy script:
 - `IMPORT_FUZZY_THRESHOLD` (default `0.86`)
 - `IMPORT_BATCH_WRITE_INTERVAL_ROWS` (default `250`)
 
+## Enrichment env vars
+
+Provider keys:
+- `APOLLO_API_KEY` (required to enable `apollo` provider skeleton)
+
+Provider rate limits:
+- `ENRICHMENT_PROVIDER_MOCK_RPM` (default `600`)
+- `ENRICHMENT_PROVIDER_MOCK_CONCURRENCY` (default `4`)
+- `ENRICHMENT_PROVIDER_APOLLO_RPM` (default `120`)
+- `ENRICHMENT_PROVIDER_APOLLO_CONCURRENCY` (default `2`)
+
+Run/merge controls:
+- `ENRICHMENT_OVERWRITE_CONFIDENCE_DELTA` (default `0.1`)
+- `ENRICHMENT_BATCH_SIZE` (default `50`)
+- `ENRICHMENT_BATCH_WRITE_INTERVAL_TARGETS` (default `100`)
+- `ENRICHMENT_ERROR_SAMPLE_LIMIT` (default `25`)
+
 ## Admin bootstrap
 
 Set before deploy:
@@ -91,7 +120,7 @@ Behavior:
 - no-op if user already exists
 - otherwise creates Admin user and audit log
 
-## How to run an import
+## How to run CSV import
 
 1. Log in to the app.
 2. Open `/import`.
@@ -102,11 +131,32 @@ Behavior:
 7. Watch progress and counters update.
 8. Review duplicate/error rows in results.
 
+## How to run enrichment
+
+1. Log in as Admin or Analyst.
+2. Open `/enrichment/new`.
+3. Select target contacts (filters and/or explicit IDs).
+4. Select providers and merge policy.
+5. Optionally set dry-run.
+6. Create run.
+7. Monitor `/enrichment/:id` for progress, counters, and field-level changes.
+
+## Provider compliance note
+
+Use provider APIs only under valid credentials and compliant terms of service. This project does not implement unauthorized scraping bypasses.
+
 ## Runtime checks
 
 - Health endpoint: `https://<domain>/api/health`
 - Login page: `https://<domain>/login`
 - Import page: `https://<domain>/import`
+- Enrichment page: `https://<domain>/enrichment`
+
+## Quality checks
+
+- `npm run lint`
+- `npm run typecheck`
+- `npm test`
 
 ## Logs and operations
 
@@ -147,12 +197,11 @@ cat backup.sql | docker compose exec -T postgres sh -lc 'psql -U "$POSTGRES_USER
 - Import stuck in `processing`:
   - check worker logs: `docker compose logs -f worker`
   - verify Redis is healthy: `docker compose ps redis`
-- Import fails immediately:
-  - verify mapping was saved before start
-  - inspect batch errors from `/api/import/:batchId/results?outcome=error`
-- Upload rejected:
-  - verify file extension is `.csv`
-  - increase `IMPORT_MAX_UPLOAD_MB` if needed
+- Enrichment run stuck in `processing`:
+  - check worker logs for `enrichment:run`
+  - confirm provider key/config in `/admin/settings`
+- Enrichment provider disabled:
+  - verify provider key env vars are set in `.env`
 - TLS issues:
   - verify DNS points to VPS and ports 80/443 are open
   - inspect Caddy logs: `docker compose logs -f caddy`

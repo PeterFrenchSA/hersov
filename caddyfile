@@ -1,0 +1,30 @@
+{
+  email {$ACME_EMAIL}
+  # Optional: tighten defaults
+  servers {
+    protocols h1 h2
+  }
+}
+
+{$APP_DOMAIN} {
+  encode zstd gzip
+
+  # Security headers (opinionated baseline)
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    Referrer-Policy "no-referrer"
+    Permissions-Policy "geolocation=(), microphone=(), camera=()"
+  }
+
+  # API
+  handle_path /api/* {
+    reverse_proxy api:3001
+  }
+
+  # Everything else -> Next.js
+  handle {
+    reverse_proxy web:3000
+  }
+}

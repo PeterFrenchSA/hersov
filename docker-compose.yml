@@ -1,0 +1,142 @@
+version: "3.9"
+
+name: mini-crm
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mini-crm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-minicrm}
+      POSTGRES_USER: ${POSTGRES_USER:-minicrm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks:
+      - internal
+
+  redis:
+    image: redis:7-alpine
+    container_name: mini-crm-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks:
+      - internal
+
+  api:
+    # Codex should provide Dockerfile at apps/api/Dockerfile
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: mini-crm-api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      TRUST_PROXY: "1"
+      PORT: "3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/api/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+    expose:
+      - "3001"
+    networks:
+      - internal
+
+  worker:
+    # Codex should provide Dockerfile at apps/worker/Dockerfile
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    container_name: mini-crm-worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - internal
+
+  web:
+    # Codex should provide Dockerfile at apps/web/Dockerfile
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: mini-crm-web
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_APP_BASE_URL: ${APP_BASE_URL}
+      NEXT_PUBLIC_API_BASE_URL: ${APP_BASE_URL} # API proxied by Caddy
+      PORT: "3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+    expose:
+      - "3000"
+    networks:
+      - internal
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: mini-crm-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # used for ACME registration
+      ACME_EMAIL: ${LETSENCRYPT_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  caddy_data:
+  caddy_config:

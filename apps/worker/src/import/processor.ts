@@ -12,6 +12,7 @@ import {
 import { importColumnMappingSchema, type ImportColumnMappingInput } from '@hersov/shared';
 import { resolveDeterministicMatch } from './dedupe';
 import { normalizeCsvRow, type NormalizedImportCandidate } from './normalization';
+import { enqueueEmbeddingUpsertContactJobs } from '../embeddings/dispatch';
 
 export interface ImportJobPayload {
   batchId: string;
@@ -97,6 +98,7 @@ export function createImportProcessor(prismaClient: PrismaClient) {
     const errorSamples: ErrorSample[] = [];
     const rowRecordsBuffer: Prisma.ImportRowCreateManyInput[] = [];
     const companyCache = new Map<string, string>();
+    const contactsToEmbed = new Set<string>();
     const storeRawRows = shouldStoreRawRows();
 
     const batchWriteIntervalRows = getBatchWriteIntervalRows();
@@ -171,6 +173,10 @@ export function createImportProcessor(prismaClient: PrismaClient) {
           counters.errorCount += 1;
         }
 
+        if ((result.outcome === 'inserted' || result.outcome === 'updated') && result.contactId) {
+          contactsToEmbed.add(result.contactId);
+        }
+
         if (result.outcome === 'error' && result.errorMessage) {
           if (errorSamples.length < getErrorSampleLimit()) {
             errorSamples.push({
@@ -220,6 +226,15 @@ export function createImportProcessor(prismaClient: PrismaClient) {
           finishedAt: new Date(),
         },
       });
+
+      try {
+        await enqueueEmbeddingUpsertContactJobs(
+          Array.from(contactsToEmbed),
+          `import:${batchId}`,
+        );
+      } catch (error) {
+        console.warn('Failed to enqueue embedding upserts after import completion', error);
+      }
     } catch (error) {
       await flushRowsBuffer(prismaClient, rowRecordsBuffer);
       await flushBatchCounters(prismaClient, batchId, counters, errorSamples);

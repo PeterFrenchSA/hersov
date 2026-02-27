@@ -75,6 +75,34 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
+  app.use(
+    '/api/chat',
+    rateLimit({
+      windowMs: 60_000,
+      limit: 60,
+      standardHeaders: true,
+      legacyHeaders: false,
+      skip: (request) => request.method !== 'POST',
+      message: { message: 'Too many chat requests from this IP. Please slow down.' },
+    }),
+  );
+
+  app.use(
+    '/api/chat',
+    rateLimit({
+      windowMs: 60_000,
+      limit: 20,
+      standardHeaders: true,
+      legacyHeaders: false,
+      skip: (request) => request.method !== 'POST',
+      keyGenerator: (request) => {
+        const sessionUserId = (request as { session?: { user?: { id?: string } } }).session?.user?.id;
+        return sessionUserId ? `chat-user:${sessionUserId}` : `chat-anon:${request.ip}`;
+      },
+      message: { message: 'Too many chat requests for this user. Please slow down.' },
+    }),
+  );
+
   const port = Number(process.env.PORT ?? 3001);
   await app.listen(port, '0.0.0.0');
 }

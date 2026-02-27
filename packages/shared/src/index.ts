@@ -1,6 +1,7 @@
 import { z } from 'zod';
 export * from './import/schema';
 export * from './enrichment/schema';
+export * from './ai/schema';
 
 export const roleSchema = z.enum(['Admin', 'Analyst', 'ReadOnly']);
 export type AppRole = z.infer<typeof roleSchema>;

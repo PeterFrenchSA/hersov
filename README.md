@@ -1,28 +1,37 @@
-# Mini CRM (PR #3 Enrichment Framework)
+# Mini CRM (PR #4 Embeddings + Semantic Search + GPT Chat)
 
-PR #3 extends the deployed CRM/import baseline with enrichment run management, provider plugins, merge rules with confidence, and enrichment change logs.
+PR #4 extends the deployed CRM/import/enrichment baseline with embeddings storage/jobs, semantic search, and GPT chat with server-side tool calling + SSE streaming.
 
 Implemented in this PR:
-- enrichment run APIs (`/api/enrichment/runs/*`)
-- worker job pipeline (`enrichment:run`) with throttled progress updates
-- provider framework with:
-  - `mock` provider (enabled by default)
-  - `apollo` provider skeleton (disabled unless `APOLLO_API_KEY` is set)
-- merge policies:
-  - `fill_missing_only`
-  - `overwrite_if_higher_confidence`
-- field-level change tracking in `enrichment_results`
-- provider status visibility in admin settings
-- UI pages:
-  - `/enrichment`
-  - `/enrichment/new`
-  - `/enrichment/:id`
-  - `/admin/settings`
+- Prisma migration updates for:
+  - `embeddings` metadata (`model`, `dims`, `hash`, `updated_at`)
+  - `chat_threads` and `chat_messages`
+  - pgvector/trgm extension ensure + vector index
+- worker embedding jobs:
+  - `embeddings:upsertContact`
+  - `embeddings:backfill`
+- deterministic embedding text builder + hash-based staleness detection
+- API endpoints:
+  - `POST /api/embeddings/backfill`
+  - `GET /api/embeddings/status`
+  - `GET /api/search/semantic`
+  - `POST /api/chat` (SSE)
+- chat tool/function calling:
+  - `crm.searchContacts`
+  - `crm.aggregateContacts`
+  - `crm.getContactById`
+  - `crm.semanticSearch`
+- data minimization controls in chat:
+  - tool row caps (`default <=20`, hard max `50`)
+  - sensitive field redaction by RBAC + explicit request intent
+  - mass extraction refusal in chat
+- UI updates:
+  - `/chat` page with streamed responses and tool activity
+  - `/contacts` semantic search mode
+  - `/admin/settings` embeddings status + backfill controls
 
 Deferred to later PRs:
 - LLM parsing of notes/tags/entities
-- embeddings generation pipeline
-- GPT chat endpoint/tool-calling
 - browser automation scraping
 
 ## Tech choices
@@ -106,6 +115,17 @@ Run/merge controls:
 - `ENRICHMENT_BATCH_WRITE_INTERVAL_TARGETS` (default `100`)
 - `ENRICHMENT_ERROR_SAMPLE_LIMIT` (default `25`)
 
+## Embeddings + Chat env vars
+
+- `OPENAI_API_KEY` (required for embeddings + chat)
+- `OPENAI_EMBEDDING_MODEL` (default `text-embedding-3-small`)
+- `OPENAI_CHAT_MODEL` (default `gpt-4.1-mini`)
+- `EMBEDDINGS_BATCH_SIZE` (default `100`)
+- `EMBEDDINGS_STALE_AFTER_DAYS` (default `30`)
+- `CHAT_MAX_TOOL_CALLS` (default `6`, max `20`)
+- `CHAT_MAX_RESULTS_PER_TOOL` (default `20`, hard max `50`)
+- `CHAT_MAX_INPUT_CHARS` (default `4000`, max `12000`)
+
 ## Admin bootstrap
 
 Set before deploy:
@@ -141,6 +161,35 @@ Behavior:
 6. Create run.
 7. Monitor `/enrichment/:id` for progress, counters, and field-level changes.
 
+## How to run embeddings backfill
+
+1. Log in as Admin or Analyst.
+2. Open `/admin/settings`.
+3. In **Embeddings**, configure filters (optional), then click **Queue Embeddings Backfill**.
+4. Monitor worker logs and refresh `/admin/settings` for counts/staleness updates.
+
+## How semantic search works
+
+- Query text is embedded server-side via OpenAI Embeddings API.
+- API runs pgvector cosine similarity against `embeddings.kind = profile`.
+- Results return contact summary fields + bounded similarity score (`0..1`).
+- UI integration: `/contacts` -> switch mode to **Semantic**.
+
+## How chat works (tool calling + SSE)
+
+- `/chat` calls `POST /api/chat` and receives `text/event-stream`.
+- Backend runs a Responses API loop:
+  1. model proposes tool calls
+  2. server validates args (zod), executes SQL/vector tools, and returns structured outputs
+  3. repeats until final answer
+- Tool activity is emitted as SSE events and shown in UI.
+- Chat is rate-limited per IP and per user.
+
+Security notes:
+- `OPENAI_API_KEY` is server-side only (never exposed to browser).
+- Tool outputs are capped and redacted by default.
+- Bulk/mass extraction requests are refused in chat; use export flows instead.
+
 ## Provider compliance note
 
 Use provider APIs only under valid credentials and compliant terms of service. This project does not implement unauthorized scraping bypasses.
@@ -151,6 +200,7 @@ Use provider APIs only under valid credentials and compliant terms of service. T
 - Login page: `https://<domain>/login`
 - Import page: `https://<domain>/import`
 - Enrichment page: `https://<domain>/enrichment`
+- Chat page: `https://<domain>/chat`
 
 ## Quality checks
 

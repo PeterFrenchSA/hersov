@@ -1,8 +1,21 @@
 import IORedis from 'ioredis';
 import { Worker } from 'bullmq';
-import { enrichmentJobName, importJobName, importQueueName } from '@hersov/shared';
+import {
+  embeddingsBackfillJobName,
+  embeddingsUpsertContactJobName,
+  enrichmentJobName,
+  importJobName,
+  importQueueName,
+  type EmbeddingsBackfillInput,
+} from '@hersov/shared';
 import { closeImportProcessor, processImportJob } from './import/processor';
 import { closeEnrichmentRunProcessor, processEnrichmentRun } from './enrichment/processor';
+import {
+  closeEmbeddingsProcessor,
+  processEmbeddingsBackfillJob,
+  processEmbeddingsUpsertContactJob,
+} from './embeddings/processor';
+import { closeEmbeddingsDispatchQueue } from './embeddings/dispatch';
 
 const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
 
@@ -30,6 +43,29 @@ const worker = new Worker(
       }
 
       await processEnrichmentRun({ runId: payload.runId });
+      return;
+    }
+
+    if (job.name === embeddingsUpsertContactJobName) {
+      const payload = job.data as { contactId?: string; force?: boolean; reason?: string };
+      if (!payload.contactId) {
+        throw new Error('Missing contactId for embeddings upsert job');
+      }
+
+      await processEmbeddingsUpsertContactJob({
+        contactId: payload.contactId,
+        force: payload.force,
+        reason: payload.reason,
+      });
+      return;
+    }
+
+    if (job.name === embeddingsBackfillJobName) {
+      const payload = job.data as { filters?: unknown; requestedByUserId?: string };
+      await processEmbeddingsBackfillJob({
+        filters: payload.filters as EmbeddingsBackfillInput | undefined,
+        requestedByUserId: payload.requestedByUserId,
+      });
       return;
     }
 
@@ -61,6 +97,8 @@ const shutdown = async (): Promise<void> => {
   await worker.close();
   await closeImportProcessor();
   await closeEnrichmentRunProcessor();
+  await closeEmbeddingsProcessor();
+  await closeEmbeddingsDispatchQueue();
   await connection.quit();
   process.exit(0);
 };

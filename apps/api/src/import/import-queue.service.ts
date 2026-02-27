@@ -1,7 +1,15 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import IORedis from 'ioredis';
-import { enrichmentJobName, importJobName, importQueueName } from '@hersov/shared';
+import { randomUUID } from 'node:crypto';
+import {
+  embeddingsBackfillJobName,
+  embeddingsUpsertContactJobName,
+  enrichmentJobName,
+  importJobName,
+  importQueueName,
+  type EmbeddingsBackfillInput,
+} from '@hersov/shared';
 
 @Injectable()
 export class ImportQueueService implements OnModuleDestroy {
@@ -30,6 +38,43 @@ export class ImportQueueService implements OnModuleDestroy {
       { runId },
       {
         jobId: `enrichment:run:${runId}`,
+        removeOnComplete: 1000,
+        removeOnFail: 1000,
+      },
+    );
+  }
+
+  async enqueueEmbeddingsBackfill(filters: EmbeddingsBackfillInput, requestedByUserId?: string): Promise<string> {
+    const queue = this.getQueue();
+    const jobId = `embeddings:backfill:${randomUUID()}`;
+
+    await queue.add(
+      embeddingsBackfillJobName,
+      {
+        filters,
+        requestedByUserId,
+      },
+      {
+        jobId,
+        removeOnComplete: 1000,
+        removeOnFail: 1000,
+      },
+    );
+
+    return jobId;
+  }
+
+  async enqueueEmbeddingUpsertContact(contactId: string, reason = 'manual'): Promise<void> {
+    const queue = this.getQueue();
+
+    await queue.add(
+      embeddingsUpsertContactJobName,
+      {
+        contactId,
+        reason,
+      },
+      {
+        jobId: `embeddings:upsert:${contactId}`,
         removeOnComplete: 1000,
         removeOnFail: 1000,
       },

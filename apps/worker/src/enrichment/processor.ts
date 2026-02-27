@@ -19,6 +19,7 @@ import {
 import { planContactMethodChanges, shouldApplyFieldUpdate } from './merge';
 import { createEnrichmentProviderRegistry } from './providers/registry';
 import { ProviderRateLimiter } from './rate-limiter';
+import { enqueueEmbeddingUpsertContactJobs } from '../embeddings/dispatch';
 
 const prisma = new PrismaClient();
 
@@ -228,6 +229,7 @@ export function createEnrichmentRunProcessor(prismaClient: PrismaClient) {
     const providerLimiters = createProviderLimiters(providerRegistry.statuses);
     const companyCache = new Map<string, string>();
     const tagCache = new Map<string, string>();
+    const contactsToEmbed = new Set<string>();
     const confidenceThreshold = getConfidenceThreshold();
     const writeIntervalRows = getWriteIntervalRows();
     const writeIntervalMs = 2_000;
@@ -302,6 +304,9 @@ export function createEnrichmentRunProcessor(prismaClient: PrismaClient) {
 
             if (outcome.updated) {
               counters.updatedContacts += 1;
+              if (!config.dryRun) {
+                contactsToEmbed.add(contact.id);
+              }
             } else {
               counters.skippedContacts += 1;
             }
@@ -352,6 +357,17 @@ export function createEnrichmentRunProcessor(prismaClient: PrismaClient) {
         entityId: run.id,
         metaJson: counters,
       });
+
+      if (!config.dryRun) {
+        try {
+          await enqueueEmbeddingUpsertContactJobs(
+            Array.from(contactsToEmbed),
+            `enrichment:${run.id}`,
+          );
+        } catch (error) {
+          console.warn('Failed to enqueue embedding upserts after enrichment completion', error);
+        }
+      }
     } catch (error) {
       if (errorSamples.length < getErrorSampleLimit()) {
         errorSamples.push({

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 type ReviewRow = {
   id: string;
@@ -33,7 +33,7 @@ export default function ReviewPage(): JSX.Element {
 
   const selected = useMemo(() => rows.find((row) => row.id === selectedId) ?? rows[0] ?? null, [rows, selectedId]);
 
-  const load = async (): Promise<void> => {
+  const load = useCallback(async (): Promise<void> => {
     setLoading(true);
     setError(null);
 
@@ -71,11 +71,11 @@ export default function ReviewPage(): JSX.Element {
     setRows(payload.data ?? []);
     setSelectedId((current) => current ?? payload.data?.[0]?.id ?? null);
     setLoading(false);
-  };
+  }, [kind, status]);
 
   useEffect(() => {
     void load();
-  }, [status, kind]);
+  }, [load]);
 
   const submitDecision = async (action: 'approve' | 'reject'): Promise<void> => {
     if (!selected) {

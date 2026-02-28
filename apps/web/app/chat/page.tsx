@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 
 type ChatThread = {
@@ -352,7 +352,7 @@ function handleSseEvent(
   }
 }
 
-function renderMessageContent(content: string): Array<string | JSX.Element> {
+function renderMessageContent(content: string): ReactNode[] {
   const parts = content.split(/(\/contacts\/[A-Za-z0-9_-]+)/g);
 
   return parts.map((part, index) => {

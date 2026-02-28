@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 
-export function LogoutButton(): JSX.Element {
+export function LogoutButton() {
   const router = useRouter();
 
   const onLogout = async (): Promise<void> => {

@@ -32,12 +32,20 @@ DROP INDEX IF EXISTS "idx_embeddings_contact_id";
 
 CREATE INDEX "idx_embeddings_contact_kind" ON "embeddings"("contact_id", "kind");
 CREATE UNIQUE INDEX "uq_embeddings_contact_kind" ON "embeddings"("contact_id", "kind");
-CREATE INDEX "idx_embeddings_vector_cosine"
-  ON "embeddings"
-  USING ivfflat (("vector"::vector(1536)) vector_cosine_ops)
-  WITH (lists = 100)
-  WHERE "vector" IS NOT NULL
-    AND "dims" = 1536;
+DO $$
+BEGIN
+  BEGIN
+    CREATE INDEX "idx_embeddings_vector_cosine"
+      ON "embeddings"
+      USING ivfflat (("vector"::vector(1536)) vector_cosine_ops)
+      WITH (lists = 100)
+      WHERE "vector" IS NOT NULL
+        AND "dims" = 1536;
+  EXCEPTION
+    WHEN OTHERS THEN
+      RAISE NOTICE 'Skipping idx_embeddings_vector_cosine creation: %', SQLERRM;
+  END;
+END $$;
 
 CREATE TYPE "ChatMessageRole" AS ENUM ('user', 'assistant', 'tool', 'system');
 

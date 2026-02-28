@@ -10,6 +10,7 @@ Implemented in this PR:
   - `review_queue`
   - `llm_prompt_versions`, `llm_runs`
   - `contact_scores`
+  - `linkedin_profile_suggestions`
 - worker network-intelligence jobs:
   - `insights:upsertContact`
   - `insights:backfill`
@@ -30,10 +31,14 @@ Implemented in this PR:
   - `GET /api/contacts/:id/insights`
   - `GET /api/contacts/:id/network`
   - `POST /api/graph/recompute`
+  - `POST /api/linkedin/match/contact/:id`
+  - `POST /api/linkedin/match/backfill`
+  - `GET /api/linkedin/match/suggestions`
 - UI updates:
   - `/review` queue page
   - `/insights` dashboard page
   - contact detail tabs: Profile / Insights / Network
+  - contact profile section: LinkedIn match suggestions + approve/reject actions
 
 Deferred to later PRs:
 - browser automation scraping
@@ -139,6 +144,14 @@ Run/merge controls:
 - `INSIGHTS_CONFIDENCE_THRESHOLD` (default `0.9`)
 - `INSIGHTS_BATCH_SIZE` (default `100`)
 
+## LinkedIn match env vars
+
+- `LINKEDIN_SEARCH_API_KEY` (required to enable LinkedIn search matching)
+- `LINKEDIN_SEARCH_API_URL` (default `https://serpapi.com/search.json`)
+- `LINKEDIN_SEARCH_API_ENGINE` (default `google`)
+- `LINKEDIN_SEARCH_API_TIMEOUT_MS` (default `15000`)
+- `LINKEDIN_MATCH_MIN_SCORE` (default `0.45`)
+
 ## Admin bootstrap
 
 Set before deploy:
@@ -215,6 +228,18 @@ Security notes:
    - entity mentions -> `contact_entity_mentions` (approved source)
    - relationships -> `relationships.status=approved`
 7. Connector scores are recomputed by `graph:recomputeScores` and shown on `/insights`.
+
+## How LinkedIn matching works (search API + heuristics)
+
+1. Open a contact detail page.
+2. In **LinkedIn match suggestions**, click **Find LinkedIn Matches**.
+3. Server queues a background job (`linkedin:matchContact`) for that contact.
+4. Worker queries the configured search API for LinkedIn profile candidates.
+5. Candidates are scored with deterministic heuristics (name/company/title/location/URL slug).
+6. High-scoring candidates are stored in `linkedin_profile_suggestions` and pushed to `/review` as kind `linkedin_profile`.
+7. Approve/reject in contact detail or `/review`:
+   - approve -> adds/updates `contact_methods(type=linkedin)` and marks as primary
+   - reject -> suggestion remains tracked as rejected
 
 ## How review works
 

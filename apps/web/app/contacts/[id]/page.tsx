@@ -66,6 +66,33 @@ type ContactNetworkResponse = {
   }>;
 };
 
+type LinkedinSuggestion = {
+  id: string;
+  contactId: string;
+  contactName: string;
+  provider: string;
+  profileUrl: string;
+  profileName: string;
+  headline: string | null;
+  location: string | null;
+  currentCompany: string | null;
+  score: number;
+  evidenceSnippet: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  reviewQueueId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type LinkedinSuggestionsResponse = {
+  data: LinkedinSuggestion[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    total: number;
+  };
+};
+
 type TabKey = 'profile' | 'insights' | 'network';
 
 export default function ContactDetailsPage() {
@@ -73,8 +100,11 @@ export default function ContactDetailsPage() {
   const [contact, setContact] = useState<Contact | null>(null);
   const [insights, setInsights] = useState<ContactInsightsResponse | null>(null);
   const [network, setNetwork] = useState<ContactNetworkResponse | null>(null);
+  const [linkedinSuggestions, setLinkedinSuggestions] = useState<LinkedinSuggestion[]>([]);
   const [activeTab, setActiveTab] = useState<TabKey>('profile');
   const [error, setError] = useState<string | null>(null);
+  const [linkedinError, setLinkedinError] = useState<string | null>(null);
+  const [linkedinSubmitting, setLinkedinSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -82,13 +112,21 @@ export default function ContactDetailsPage() {
       setLoading(true);
       setError(null);
 
-      const [contactResponse, insightsResponse, networkResponse] = await Promise.all([
+      const [contactResponse, insightsResponse, networkResponse, linkedinResponse] = await Promise.all([
         fetch(`/api/contacts/${params.id}`, { credentials: 'include' }),
         fetch(`/api/contacts/${params.id}/insights`, { credentials: 'include' }),
         fetch(`/api/contacts/${params.id}/network`, { credentials: 'include' }),
+        fetch(`/api/linkedin/match/suggestions?contactId=${params.id}&page=1&pageSize=20`, {
+          credentials: 'include',
+        }),
       ]);
 
-      if (contactResponse.status === 401 || insightsResponse.status === 401 || networkResponse.status === 401) {
+      if (
+        contactResponse.status === 401
+        || insightsResponse.status === 401
+        || networkResponse.status === 401
+        || linkedinResponse.status === 401
+      ) {
         window.location.href = '/login';
         return;
       }
@@ -116,6 +154,15 @@ export default function ContactDetailsPage() {
         setNetwork(null);
       }
 
+      if (linkedinResponse.ok) {
+        const linkedinData = (await linkedinResponse.json()) as LinkedinSuggestionsResponse;
+        setLinkedinSuggestions(linkedinData.data ?? []);
+        setLinkedinError(null);
+      } else {
+        setLinkedinSuggestions([]);
+        setLinkedinError('Failed to load LinkedIn suggestions.');
+      }
+
       setLoading(false);
     };
 
@@ -129,6 +176,85 @@ export default function ContactDetailsPage() {
   if (error || !contact) {
     return <p className="error">{error ?? 'Contact not found'}</p>;
   }
+
+  const refreshLinkedinSuggestions = async (): Promise<void> => {
+    const response = await fetch(`/api/linkedin/match/suggestions?contactId=${params.id}&page=1&pageSize=20`, {
+      credentials: 'include',
+    });
+
+    if (response.status === 401) {
+      setLinkedinSubmitting(false);
+      window.location.href = '/login';
+      return;
+    }
+
+    if (!response.ok) {
+      setLinkedinError('Failed to load LinkedIn suggestions.');
+      return;
+    }
+
+    const payload = (await response.json()) as LinkedinSuggestionsResponse;
+    setLinkedinSuggestions(payload.data ?? []);
+    setLinkedinError(null);
+  };
+
+  const runLinkedinMatch = async (): Promise<void> => {
+    setLinkedinSubmitting(true);
+    setLinkedinError(null);
+
+    const response = await fetch(`/api/linkedin/match/contact/${params.id}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({}),
+    });
+
+    if (response.status === 401) {
+      setLinkedinSubmitting(false);
+      window.location.href = '/login';
+      return;
+    }
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({ message: 'Failed to start LinkedIn match.' }));
+      setLinkedinError(body.message ?? 'Failed to start LinkedIn match.');
+      setLinkedinSubmitting(false);
+      return;
+    }
+
+    await refreshLinkedinSuggestions();
+    setLinkedinSubmitting(false);
+  };
+
+  const decideLinkedinSuggestion = async (
+    reviewQueueId: string,
+    action: 'approve' | 'reject',
+  ): Promise<void> => {
+    setLinkedinSubmitting(true);
+    setLinkedinError(null);
+
+    const response = await fetch(`/api/review/${reviewQueueId}/${action}`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+
+    if (response.status === 401) {
+      window.location.href = '/login';
+      return;
+    }
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({ message: `Failed to ${action} suggestion.` }));
+      setLinkedinError(body.message ?? `Failed to ${action} suggestion.`);
+      setLinkedinSubmitting(false);
+      return;
+    }
+
+    await refreshLinkedinSuggestions();
+    setLinkedinSubmitting(false);
+  };
 
   return (
     <section className="grid" style={{ gap: '1rem' }}>
@@ -172,6 +298,74 @@ export default function ContactDetailsPage() {
                 </li>
               ))}
             </ul>
+          </article>
+          <article className="card grid" style={{ gap: '0.75rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+              <h2 style={{ margin: 0 }}>LinkedIn match suggestions</h2>
+              <button
+                type="button"
+                className="button"
+                onClick={() => void runLinkedinMatch()}
+                disabled={linkedinSubmitting}
+              >
+                {linkedinSubmitting ? 'Running...' : 'Find LinkedIn Matches'}
+              </button>
+            </div>
+
+            {linkedinError ? <p className="error">{linkedinError}</p> : null}
+            {linkedinSuggestions.length === 0 ? <p>No LinkedIn suggestions yet.</p> : null}
+
+            {linkedinSuggestions.length > 0 ? (
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Profile</th>
+                    <th>Headline</th>
+                    <th>Score</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {linkedinSuggestions.map((suggestion) => (
+                    <tr key={suggestion.id}>
+                      <td>
+                        <a href={suggestion.profileUrl} target="_blank" rel="noreferrer">
+                          {suggestion.profileName || suggestion.profileUrl}
+                        </a>
+                      </td>
+                      <td>{suggestion.headline ?? suggestion.currentCompany ?? '-'}</td>
+                      <td>{suggestion.score.toFixed(3)}</td>
+                      <td>{suggestion.status}</td>
+                      <td>
+                        {suggestion.status === 'pending' && suggestion.reviewQueueId ? (
+                          <div style={{ display: 'flex', gap: '0.4rem' }}>
+                            <button
+                              type="button"
+                              className="button"
+                              disabled={linkedinSubmitting}
+                              onClick={() => void decideLinkedinSuggestion(suggestion.reviewQueueId, 'approve')}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              className="button secondary"
+                              disabled={linkedinSubmitting}
+                              onClick={() => void decideLinkedinSuggestion(suggestion.reviewQueueId, 'reject')}
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        ) : (
+                          '-'
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : null}
           </article>
         </>
       ) : null}

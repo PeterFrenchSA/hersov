@@ -1,7 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { ReviewKind, ReviewStatus, RelationshipStatus } from '@prisma/client';
+import { ContactMethodType, ReviewKind, ReviewStatus, RelationshipStatus } from '@prisma/client';
 import type { NextFunction, Request, Response } from 'express';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -22,6 +22,17 @@ describe('Review workflow integration', () => {
   const reviewRows = new Map<string, ReviewRow>();
   const relationshipRows = new Map<string, { id: string; status: RelationshipStatus; confidence: number }>();
   const contactTags = new Map<string, { contactId: string; tagId: string; confidence: number | null; source: string | null }>();
+  const contactMethods = new Map<string, {
+    contactId: string;
+    type: ContactMethodType;
+    value: string;
+    isPrimary: boolean;
+    source: string | null;
+  }>();
+  const linkedinSuggestions = new Map<string, {
+    id: string;
+    status: ReviewStatus;
+  }>();
 
   const prismaMock: any = {
     reviewQueue: {
@@ -86,6 +97,63 @@ describe('Review workflow integration', () => {
         return updated;
       }),
     },
+    contactMethod: {
+      upsert: jest.fn(async ({ where, create, update }: any) => {
+        const key = `${where.contactId_type_value.contactId}:${where.contactId_type_value.type}:${where.contactId_type_value.value}`;
+        const existing = contactMethods.get(key);
+        if (existing) {
+          const merged = {
+            ...existing,
+            ...update,
+          };
+          contactMethods.set(key, merged);
+          return merged;
+        }
+
+        const created = {
+          contactId: create.contactId,
+          type: create.type,
+          value: create.value,
+          isPrimary: create.isPrimary ?? false,
+          source: create.source ?? null,
+        };
+        contactMethods.set(key, created);
+        return created;
+      }),
+      updateMany: jest.fn(async ({ where, data }: any) => {
+        let count = 0;
+        for (const [key, value] of contactMethods.entries()) {
+          if (value.contactId !== where.contactId || value.type !== where.type) {
+            continue;
+          }
+
+          if (where.NOT?.value && value.value === where.NOT.value) {
+            continue;
+          }
+
+          contactMethods.set(key, {
+            ...value,
+            ...data,
+          });
+          count += 1;
+        }
+
+        return { count };
+      }),
+    },
+    linkedinProfileSuggestion: {
+      updateMany: jest.fn(async ({ where, data }: any) => {
+        const existing = linkedinSuggestions.get(where.id);
+        if (!existing) {
+          return { count: 0 };
+        }
+        linkedinSuggestions.set(where.id, {
+          ...existing,
+          ...data,
+        });
+        return { count: 1 };
+      }),
+    },
     auditLog: {
       create: jest.fn(async () => ({})),
     },
@@ -133,6 +201,29 @@ describe('Review workflow integration', () => {
       createdAt: new Date(),
     });
 
+    linkedinSuggestions.set('li-sug-1', {
+      id: 'li-sug-1',
+      status: ReviewStatus.PENDING,
+    });
+
+    reviewRows.set('review-li-1', {
+      id: 'review-li-1',
+      kind: ReviewKind.LINKEDIN_PROFILE,
+      status: ReviewStatus.PENDING,
+      payloadJson: {
+        suggestionId: 'li-sug-1',
+        contactId: 'contact-1',
+        profileUrl: 'https://www.linkedin.com/in/jane-doe',
+        profileName: 'Jane Doe',
+        confidence: 0.86,
+        evidenceSnippet: 'name_high, company_high',
+      },
+      createdByUserId: 'usr-admin',
+      reviewedByUserId: null,
+      reviewedAt: null,
+      createdAt: new Date(),
+    });
+
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     })
@@ -172,5 +263,9 @@ describe('Review workflow integration', () => {
 
     await request(app.getHttpServer()).post('/api/review/review-rel-1/reject').expect(201);
     expect(relationshipRows.get('rel-1')?.status).toBe(RelationshipStatus.REJECTED);
+
+    await request(app.getHttpServer()).post('/api/review/review-li-1/approve').expect(201);
+    expect(contactMethods.size).toBe(1);
+    expect(linkedinSuggestions.get('li-sug-1')?.status).toBe(ReviewStatus.APPROVED);
   });
 });

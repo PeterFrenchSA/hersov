@@ -77,6 +77,7 @@ enum ReviewKind {
   TAG          @map("tag")
   ENTITY       @map("entity")
   RELATIONSHIP @map("relationship")
+  LINKEDIN_PROFILE @map("linkedin_profile")
 }
 
 enum ReviewStatus {
@@ -152,6 +153,7 @@ model Contact {
   relationshipsFrom Relationship[] @relation("RelationshipFromContact")
   relationshipsTo  Relationship[] @relation("RelationshipToContact")
   score            ContactScore?
+  linkedinProfileSuggestions LinkedinProfileSuggestion[]
 
   @@index([fullName], map: "idx_contacts_full_name")
   @@index([currentCompanyId], map: "idx_contacts_company_id")
@@ -368,11 +370,37 @@ model ReviewQueue {
   createdAt        DateTime     @default(now()) @map("created_at")
   createdByUser    User         @relation("ReviewCreatedBy", fields: [createdByUserId], references: [id], onDelete: Cascade)
   reviewedByUser   User?        @relation("ReviewReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  linkedinSuggestions LinkedinProfileSuggestion[]
 
   @@index([status, kind, createdAt], map: "idx_review_queue_status_kind_created_at")
   @@index([createdByUserId], map: "idx_review_queue_created_by")
   @@index([reviewedByUserId], map: "idx_review_queue_reviewed_by")
   @@map("review_queue")
+}
+
+model LinkedinProfileSuggestion {
+  id             String       @id @default(cuid())
+  contactId      String       @map("contact_id")
+  reviewQueueId  String?      @unique @map("review_queue_id")
+  provider       String
+  profileUrl     String       @map("profile_url")
+  profileName    String       @map("profile_name")
+  headline       String?
+  location       String?
+  currentCompany String?      @map("current_company")
+  score          Float
+  evidenceSnippet String?     @map("evidence_snippet")
+  signalsJson    Json?        @map("signals_json")
+  status         ReviewStatus @default(PENDING)
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  contact        Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  reviewQueue    ReviewQueue? @relation(fields: [reviewQueueId], references: [id], onDelete: SetNull)
+
+  @@unique([contactId, profileUrl], map: "uq_linkedin_profile_suggestions_contact_url")
+  @@index([contactId, status, score], map: "idx_linkedin_profile_suggestions_contact_status_score")
+  @@index([status, createdAt], map: "idx_linkedin_profile_suggestions_status_created_at")
+  @@map("linkedin_profile_suggestions")
 }
 
 model LlmPromptVersion {

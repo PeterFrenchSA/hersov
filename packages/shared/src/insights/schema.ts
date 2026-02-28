@@ -7,7 +7,7 @@ export const graphRecomputeScoresJobName = 'graph:recomputeScores';
 export const insightEntityTypeSchema = z.enum(['company', 'event', 'location', 'topic', 'person_ref']);
 export type InsightEntityType = z.infer<typeof insightEntityTypeSchema>;
 
-export const reviewKindSchema = z.enum(['tag', 'entity', 'relationship']);
+export const reviewKindSchema = z.enum(['tag', 'entity', 'relationship', 'linkedin_profile']);
 export type ReviewKind = z.infer<typeof reviewKindSchema>;
 
 export const reviewStatusSchema = z.enum(['pending', 'approved', 'rejected']);
@@ -88,4 +88,3 @@ export const insightsDashboardQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(10),
 });
 export type InsightsDashboardQueryInput = z.infer<typeof insightsDashboardQuerySchema>;
-

@@ -14,6 +14,12 @@ export class AdminController {
   getProviderStatus() {
     return {
       data: this.enrichmentService.getProviderStatuses(),
+      linkedinSearch: {
+        name: 'linkedin_search_api',
+        label: 'LinkedIn Search API',
+        configured: Boolean(process.env.LINKEDIN_SEARCH_API_KEY?.trim()),
+        envVar: 'LINKEDIN_SEARCH_API_KEY',
+      },
     };
   }
 }

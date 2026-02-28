@@ -24,9 +24,17 @@ type EmbeddingsStatus = {
   lastRunAt: string | null;
 };
 
+type LinkedinSearchStatus = {
+  name: string;
+  label: string;
+  configured: boolean;
+  envVar: string;
+};
+
 export default function AdminSettingsPage() {
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
   const [embeddingsStatus, setEmbeddingsStatus] = useState<EmbeddingsStatus | null>(null);
+  const [linkedinSearchStatus, setLinkedinSearchStatus] = useState<LinkedinSearchStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,10 +78,14 @@ export default function AdminSettingsPage() {
       return;
     }
 
-    const providersPayload = (await providersResponse.json()) as { data: ProviderStatus[] };
+    const providersPayload = (await providersResponse.json()) as {
+      data: ProviderStatus[];
+      linkedinSearch?: LinkedinSearchStatus;
+    };
     const embeddingsPayload = (await embeddingsResponse.json()) as EmbeddingsStatus;
 
     setProviders(providersPayload.data ?? []);
+    setLinkedinSearchStatus(providersPayload.linkedinSearch ?? null);
     setEmbeddingsStatus(embeddingsPayload);
     setLoading(false);
   };
@@ -170,6 +182,15 @@ export default function AdminSettingsPage() {
 
           <article className="card grid" style={{ gap: '0.5rem' }}>
             <h2 style={{ margin: 0 }}>Provider Configuration</h2>
+            {linkedinSearchStatus ? (
+              <div style={{ border: '1px solid #d8dee9', borderRadius: 8, padding: '0.75rem' }}>
+                <div>
+                  <strong>{linkedinSearchStatus.label}</strong> ({linkedinSearchStatus.name})
+                </div>
+                <div>Status: {linkedinSearchStatus.configured ? 'Configured' : 'Disabled'}</div>
+                <div>Env var: {linkedinSearchStatus.envVar}</div>
+              </div>
+            ) : null}
             {providers.map((provider) => (
               <div key={provider.name} style={{ border: '1px solid #d8dee9', borderRadius: 8, padding: '0.75rem' }}>
                 <div>

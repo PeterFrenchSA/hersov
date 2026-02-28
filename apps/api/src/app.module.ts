@@ -14,6 +14,7 @@ import { SearchController } from './search/search.controller';
 import { InsightsController } from './insights/insights.controller';
 import { ReviewController } from './review/review.controller';
 import { GraphController } from './graph/graph.controller';
+import { LinkedinController } from './linkedin/linkedin.controller';
 import { AuthService } from './auth/auth.service';
 import { ContactsService } from './contacts/contacts.service';
 import { AuditService } from './audit/audit.service';
@@ -29,6 +30,7 @@ import { ChatToolsService } from './chat/chat-tools.service';
 import { InsightsService } from './insights/insights.service';
 import { ReviewService } from './review/review.service';
 import { GraphService } from './graph/graph.service';
+import { LinkedinService } from './linkedin/linkedin.service';
 
 @Module({
   imports: [ConfigModule.forRoot({ isGlobal: true }), PrismaModule],
@@ -46,6 +48,7 @@ import { GraphService } from './graph/graph.service';
     InsightsController,
     ReviewController,
     GraphController,
+    LinkedinController,
   ],
   providers: [
     AuthService,
@@ -63,6 +66,7 @@ import { GraphService } from './graph/graph.service';
     InsightsService,
     ReviewService,
     GraphService,
+    LinkedinService,
   ],
 })
 export class AppModule {}

@@ -10,8 +10,12 @@ import {
   importQueueName,
   insightsBackfillJobName,
   insightsUpsertContactJobName,
+  linkedinMatchBackfillJobName,
+  linkedinMatchContactJobName,
   type EmbeddingsBackfillInput,
   type InsightsBackfillInput,
+  type LinkedinMatchBackfillInput,
+  type LinkedinMatchContactInput,
 } from '@hersov/shared';
 import { getBullConnectionOptions } from './redis-connection';
 
@@ -144,6 +148,40 @@ export class ImportQueueService implements OnModuleDestroy {
       {
         requestedByUserId,
       },
+      {
+        jobId,
+        removeOnComplete: 1000,
+        removeOnFail: 1000,
+      },
+    );
+
+    return jobId;
+  }
+
+  async enqueueLinkedinMatchContact(input: LinkedinMatchContactInput): Promise<string> {
+    const queue = this.getQueue();
+    const jobId = `linkedin:match:contact:${input.contactId}:${randomUUID()}`;
+
+    await queue.add(
+      linkedinMatchContactJobName,
+      input,
+      {
+        jobId,
+        removeOnComplete: 1000,
+        removeOnFail: 1000,
+      },
+    );
+
+    return jobId;
+  }
+
+  async enqueueLinkedinMatchBackfill(input: LinkedinMatchBackfillInput): Promise<string> {
+    const queue = this.getQueue();
+    const jobId = `linkedin:match:backfill:${randomUUID()}`;
+
+    await queue.add(
+      linkedinMatchBackfillJobName,
+      input,
       {
         jobId,
         removeOnComplete: 1000,

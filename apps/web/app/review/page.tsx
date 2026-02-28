@@ -24,7 +24,7 @@ type ReviewResponse = {
 
 export default function ReviewPage() {
   const [status, setStatus] = useState<'pending' | 'approved' | 'rejected'>('pending');
-  const [kind, setKind] = useState<'all' | 'tag' | 'entity' | 'relationship'>('all');
+  const [kind, setKind] = useState<'all' | 'tag' | 'entity' | 'relationship' | 'linkedin_profile'>('all');
   const [rows, setRows] = useState<ReviewRow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -108,7 +108,7 @@ export default function ReviewPage() {
   return (
     <section className="grid" style={{ gap: '1rem' }}>
       <h1>Review Queue</h1>
-      <p>Approve or reject AI-generated tag/entity/relationship suggestions before canonical use.</p>
+      <p>Approve or reject AI-generated tag/entity/relationship/LinkedIn profile suggestions before canonical use.</p>
 
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
         <select className="input" value={status} onChange={(event) => setStatus(event.target.value as 'pending' | 'approved' | 'rejected')}>
@@ -116,11 +116,12 @@ export default function ReviewPage() {
           <option value="approved">Approved</option>
           <option value="rejected">Rejected</option>
         </select>
-        <select className="input" value={kind} onChange={(event) => setKind(event.target.value as 'all' | 'tag' | 'entity' | 'relationship')}>
+        <select className="input" value={kind} onChange={(event) => setKind(event.target.value as 'all' | 'tag' | 'entity' | 'relationship' | 'linkedin_profile')}>
           <option value="all">All kinds</option>
           <option value="tag">Tag</option>
           <option value="entity">Entity</option>
           <option value="relationship">Relationship</option>
+          <option value="linkedin_profile">LinkedIn profile</option>
         </select>
       </div>
 

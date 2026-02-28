@@ -1,5 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { ReviewKind, ReviewStatus, RelationshipStatus, type Prisma } from '@prisma/client';
+import {
+  ContactMethodType,
+  ReviewKind,
+  ReviewStatus,
+  RelationshipStatus,
+  type Prisma,
+} from '@prisma/client';
 import { z } from 'zod';
 import type { ReviewQueueQueryInput } from '@hersov/shared';
 import { PrismaService } from '../prisma/prisma.service';
@@ -27,6 +33,15 @@ const relationshipPayloadSchema = z.object({
   toContactId: z.string().trim().min(1).nullable().optional(),
   entityId: z.string().trim().min(1).nullable().optional(),
   type: z.string().trim().min(1),
+  confidence: z.number().min(0).max(1).optional(),
+  evidenceSnippet: z.string().trim().min(1).optional(),
+});
+
+const linkedinProfilePayloadSchema = z.object({
+  suggestionId: z.string().trim().min(1),
+  contactId: z.string().trim().min(1),
+  profileUrl: z.string().trim().url(),
+  profileName: z.string().trim().min(1),
   confidence: z.number().min(0).max(1).optional(),
   evidenceSnippet: z.string().trim().min(1).optional(),
 });
@@ -161,6 +176,51 @@ export class ReviewService {
           confidence: payload.confidence ?? undefined,
         },
       });
+    } else if (row.kind === ReviewKind.LINKEDIN_PROFILE) {
+      const payload = linkedinProfilePayloadSchema.parse(row.payloadJson);
+
+      await this.prisma.contactMethod.upsert({
+        where: {
+          contactId_type_value: {
+            contactId: payload.contactId,
+            type: ContactMethodType.LINKEDIN,
+            value: payload.profileUrl,
+          },
+        },
+        update: {
+          isPrimary: true,
+          source: 'linkedin-match',
+        },
+        create: {
+          contactId: payload.contactId,
+          type: ContactMethodType.LINKEDIN,
+          value: payload.profileUrl,
+          isPrimary: true,
+          source: 'linkedin-match',
+        },
+      });
+
+      await this.prisma.contactMethod.updateMany({
+        where: {
+          contactId: payload.contactId,
+          type: ContactMethodType.LINKEDIN,
+          NOT: {
+            value: payload.profileUrl,
+          },
+        },
+        data: {
+          isPrimary: false,
+        },
+      });
+
+      await this.prisma.linkedinProfileSuggestion.updateMany({
+        where: {
+          id: payload.suggestionId,
+        },
+        data: {
+          status: ReviewStatus.APPROVED,
+        },
+      });
     }
 
     await this.prisma.reviewQueue.update({
@@ -227,6 +287,16 @@ export class ReviewService {
           status: RelationshipStatus.REJECTED,
         },
       });
+    } else if (row.kind === ReviewKind.LINKEDIN_PROFILE) {
+      const payload = linkedinProfilePayloadSchema.parse(row.payloadJson);
+      await this.prisma.linkedinProfileSuggestion.updateMany({
+        where: {
+          id: payload.suggestionId,
+        },
+        data: {
+          status: ReviewStatus.REJECTED,
+        },
+      });
     }
 
     await this.prisma.reviewQueue.update({
@@ -273,6 +343,9 @@ function reviewKindToDb(value: ReviewQueueQueryInput['kind']): ReviewKind {
   }
   if (value === 'relationship') {
     return ReviewKind.RELATIONSHIP;
+  }
+  if (value === 'linkedin_profile') {
+    return ReviewKind.LINKEDIN_PROFILE;
   }
   return ReviewKind.TAG;
 }

@@ -150,6 +150,30 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
+  app.use(
+    '/api/linkedin/match/contact',
+    rateLimit({
+      windowMs: 60_000,
+      limit: 20,
+      standardHeaders: true,
+      legacyHeaders: false,
+      skip: (request) => request.method !== 'POST',
+      message: { message: 'Too many LinkedIn match requests from this IP.' },
+    }),
+  );
+
+  app.use(
+    '/api/linkedin/match/backfill',
+    rateLimit({
+      windowMs: 60_000,
+      limit: 4,
+      standardHeaders: true,
+      legacyHeaders: false,
+      skip: (request) => request.method !== 'POST',
+      message: { message: 'Too many LinkedIn backfill requests from this IP.' },
+    }),
+  );
+
   const port = Number(process.env.PORT ?? 3001);
   await app.listen(port, '0.0.0.0');
 }

@@ -6,6 +6,10 @@ import {
   graphRecomputeScoresJobName,
   importJobName,
   importQueueName,
+  linkedinMatchBackfillJobName,
+  linkedinMatchContactJobName,
+  type LinkedinMatchBackfillInput,
+  type LinkedinMatchContactInput,
   type EmbeddingsBackfillInput,
   type InsightsBackfillInput,
   insightsBackfillJobName,
@@ -27,6 +31,11 @@ import {
 } from './insights/processor';
 import { closeInsightsDispatchQueue } from './insights/dispatch';
 import { getBullConnectionOptions } from './redis-connection';
+import {
+  closeLinkedinMatchProcessor,
+  processLinkedinMatchBackfillJob,
+  processLinkedinMatchContactJob,
+} from './linkedin/processor';
 
 const connection = getBullConnectionOptions();
 
@@ -115,6 +124,18 @@ const worker = new Worker(
       return;
     }
 
+    if (job.name === linkedinMatchContactJobName) {
+      const payload = job.data as LinkedinMatchContactInput;
+      await processLinkedinMatchContactJob(payload);
+      return;
+    }
+
+    if (job.name === linkedinMatchBackfillJobName) {
+      const payload = job.data as LinkedinMatchBackfillInput;
+      await processLinkedinMatchBackfillJob(payload);
+      return;
+    }
+
     throw new Error(`Unsupported job name: ${job.name}`);
   },
   {
@@ -147,6 +168,7 @@ const shutdown = async (): Promise<void> => {
   await closeInsightsProcessor();
   await closeEmbeddingsDispatchQueue();
   await closeInsightsDispatchQueue();
+  await closeLinkedinMatchProcessor();
   process.exit(0);
 };
 

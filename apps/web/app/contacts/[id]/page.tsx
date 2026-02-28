@@ -229,9 +229,13 @@ export default function ContactDetailsPage() {
   };
 
   const decideLinkedinSuggestion = async (
-    reviewQueueId: string,
+    reviewQueueId: string | null,
     action: 'approve' | 'reject',
   ): Promise<void> => {
+    if (!reviewQueueId) {
+      return;
+    }
+
     setLinkedinSubmitting(true);
     setLinkedinError(null);
 

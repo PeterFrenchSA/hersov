@@ -123,6 +123,7 @@ services:
     environment:
       # used for ACME registration
       ACME_EMAIL: ${LETSENCRYPT_EMAIL}
+      APP_DOMAIN: ${APP_DOMAIN}
     volumes:
       - ./caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

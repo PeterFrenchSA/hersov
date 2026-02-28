@@ -154,9 +154,7 @@ export class OpenAiService {
       }
 
       if (eventType === 'response.failed') {
-        const error = typedEvent.error as Record<string, unknown> | undefined;
-        const message = typeof error?.message === 'string' ? error.message : 'Responses API failed';
-        throw new Error(message);
+        throw new Error(this.extractFailureDetails(typedEvent));
       }
     });
 
@@ -313,5 +311,23 @@ export class OpenAiService {
     }
 
     return chunks.join('');
+  }
+
+  private extractFailureDetails(eventRecord: Record<string, unknown>): string {
+    const directError = eventRecord.error as Record<string, unknown> | undefined;
+    const responseObject = eventRecord.response as Record<string, unknown> | undefined;
+    const responseError = responseObject?.error as Record<string, unknown> | undefined;
+
+    const code =
+      (typeof directError?.code === 'string' ? directError.code : undefined)
+      ?? (typeof responseError?.code === 'string' ? responseError.code : undefined);
+
+    const message =
+      (typeof directError?.message === 'string' ? directError.message : undefined)
+      ?? (typeof responseError?.message === 'string' ? responseError.message : undefined)
+      ?? (typeof responseObject?.status === 'string' ? `status=${responseObject.status}` : undefined)
+      ?? 'no additional details';
+
+    return `Responses API failed${code ? ` (${code})` : ''}: ${message}`;
   }
 }

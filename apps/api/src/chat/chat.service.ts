@@ -312,6 +312,7 @@ export class ChatService {
       });
       response.end();
     } catch (error) {
+      console.error('Chat streaming failed', error);
       this.sendSseEvent(response, 'error', {
         message: (error as Error).message,
       });

@@ -39,6 +39,24 @@ const LEGACY_CHAT_TOOL_NAME_ALIASES: Record<string, string> = {
   'crm.semanticSearch': CHAT_TOOL_NAMES.semanticSearch,
 };
 
+const CONTACT_FILTER_PROPERTIES = {
+  q: { type: ['string', 'null'] },
+  country: { type: ['string', 'null'] },
+  company: { type: ['string', 'null'] },
+  tag: { type: ['string', 'null'] },
+  importedBatchId: { type: ['string', 'null'] },
+};
+
+const CONTACT_FILTER_REQUIRED = ['q', 'country', 'company', 'tag', 'importedBatchId'];
+
+const SEMANTIC_FILTER_PROPERTIES = {
+  country: { type: ['string', 'null'] },
+  tag: { type: ['string', 'null'] },
+  importedBatchId: { type: ['string', 'null'] },
+};
+
+const SEMANTIC_FILTER_REQUIRED = ['country', 'tag', 'importedBatchId'];
+
 @Injectable()
 export class ChatToolsService {
   constructor(
@@ -58,21 +76,17 @@ export class ChatToolsService {
           additionalProperties: false,
           properties: {
             filters: {
-              type: 'object',
+              type: ['object', 'null'],
               additionalProperties: false,
-              properties: {
-                q: { type: 'string' },
-                country: { type: 'string' },
-                company: { type: 'string' },
-                tag: { type: 'string' },
-                importedBatchId: { type: 'string' },
-              },
+              properties: CONTACT_FILTER_PROPERTIES,
+              required: CONTACT_FILTER_REQUIRED,
             },
-            sortBy: { type: 'string', enum: ['updated_at', 'created_at', 'name'] },
-            sortDir: { type: 'string', enum: ['asc', 'desc'] },
-            limit: { type: 'integer', minimum: 1, maximum: 50 },
-            includeSensitive: { type: 'boolean' },
+            sortBy: { type: ['string', 'null'], enum: ['updated_at', 'created_at', 'name', null] },
+            sortDir: { type: ['string', 'null'], enum: ['asc', 'desc', null] },
+            limit: { type: ['integer', 'null'], minimum: 1, maximum: 50 },
+            includeSensitive: { type: ['boolean', 'null'] },
           },
+          required: ['filters', 'sortBy', 'sortDir', 'limit', 'includeSensitive'],
         },
       },
       {
@@ -86,19 +100,14 @@ export class ChatToolsService {
           properties: {
             groupBy: { type: 'string', enum: ['country', 'company', 'title'] },
             filters: {
-              type: 'object',
+              type: ['object', 'null'],
               additionalProperties: false,
-              properties: {
-                q: { type: 'string' },
-                country: { type: 'string' },
-                company: { type: 'string' },
-                tag: { type: 'string' },
-                importedBatchId: { type: 'string' },
-              },
+              properties: CONTACT_FILTER_PROPERTIES,
+              required: CONTACT_FILTER_REQUIRED,
             },
-            limit: { type: 'integer', minimum: 1, maximum: 50 },
+            limit: { type: ['integer', 'null'], minimum: 1, maximum: 50 },
           },
-          required: ['groupBy'],
+          required: ['groupBy', 'filters', 'limit'],
         },
       },
       {
@@ -111,9 +120,9 @@ export class ChatToolsService {
           additionalProperties: false,
           properties: {
             id: { type: 'string' },
-            includeSensitive: { type: 'boolean' },
+            includeSensitive: { type: ['boolean', 'null'] },
           },
-          required: ['id'],
+          required: ['id', 'includeSensitive'],
         },
       },
       {
@@ -126,26 +135,23 @@ export class ChatToolsService {
           additionalProperties: false,
           properties: {
             query: { type: 'string' },
-            k: { type: 'integer', minimum: 1, maximum: 50 },
+            k: { type: ['integer', 'null'], minimum: 1, maximum: 50 },
             filters: {
-              type: 'object',
+              type: ['object', 'null'],
               additionalProperties: false,
-              properties: {
-                country: { type: 'string' },
-                tag: { type: 'string' },
-                importedBatchId: { type: 'string' },
-              },
+              properties: SEMANTIC_FILTER_PROPERTIES,
+              required: SEMANTIC_FILTER_REQUIRED,
             },
-            includeSensitive: { type: 'boolean' },
+            includeSensitive: { type: ['boolean', 'null'] },
           },
-          required: ['query'],
+          required: ['query', 'k', 'filters', 'includeSensitive'],
         },
       },
     ];
   }
 
   async executeTool(name: string, argumentsJson: string, context: ToolContext): Promise<ToolExecutionResult> {
-    const args = parseToolArguments(argumentsJson);
+    const args = stripNullishValues(parseToolArguments(argumentsJson));
     const normalizedName = normalizeToolName(name);
     if (!normalizedName) {
       throw new Error(`Unsupported tool: ${name}`);
@@ -419,6 +425,25 @@ function normalizeToolName(name: string): string | null {
   }
 
   return LEGACY_CHAT_TOOL_NAME_ALIASES[name] ?? null;
+}
+
+function stripNullishValues(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => stripNullishValues(item));
+  }
+
+  if (value && typeof value === 'object') {
+    const output: Record<string, unknown> = {};
+    for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+      const cleaned = stripNullishValues(nested);
+      if (cleaned !== null && cleaned !== undefined) {
+        output[key] = cleaned;
+      }
+    }
+    return output;
+  }
+
+  return value;
 }
 
 function canIncludeSensitive(

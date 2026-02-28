@@ -19,7 +19,7 @@
   }
 
   # API
-  handle_path /api/* {
+  handle /api/* {
     reverse_proxy api:3001
   }
 

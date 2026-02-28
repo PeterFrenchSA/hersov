@@ -25,6 +25,20 @@ interface ToolExecutionResult {
   output: Record<string, unknown>;
 }
 
+const CHAT_TOOL_NAMES = {
+  searchContacts: 'crm_search_contacts',
+  aggregateContacts: 'crm_aggregate_contacts',
+  getContactById: 'crm_get_contact_by_id',
+  semanticSearch: 'crm_semantic_search',
+} as const;
+
+const LEGACY_CHAT_TOOL_NAME_ALIASES: Record<string, string> = {
+  'crm.searchContacts': CHAT_TOOL_NAMES.searchContacts,
+  'crm.aggregateContacts': CHAT_TOOL_NAMES.aggregateContacts,
+  'crm.getContactById': CHAT_TOOL_NAMES.getContactById,
+  'crm.semanticSearch': CHAT_TOOL_NAMES.semanticSearch,
+};
+
 @Injectable()
 export class ChatToolsService {
   constructor(
@@ -36,7 +50,7 @@ export class ChatToolsService {
     return [
       {
         type: 'function',
-        name: 'crm.searchContacts',
+        name: CHAT_TOOL_NAMES.searchContacts,
         description: 'Search contacts with filters and sorting.',
         strict: true,
         parameters: {
@@ -63,7 +77,7 @@ export class ChatToolsService {
       },
       {
         type: 'function',
-        name: 'crm.aggregateContacts',
+        name: CHAT_TOOL_NAMES.aggregateContacts,
         description: 'Aggregate contacts by country, company, or title.',
         strict: true,
         parameters: {
@@ -89,7 +103,7 @@ export class ChatToolsService {
       },
       {
         type: 'function',
-        name: 'crm.getContactById',
+        name: CHAT_TOOL_NAMES.getContactById,
         description: 'Get a single contact by id.',
         strict: true,
         parameters: {
@@ -104,7 +118,7 @@ export class ChatToolsService {
       },
       {
         type: 'function',
-        name: 'crm.semanticSearch',
+        name: CHAT_TOOL_NAMES.semanticSearch,
         description: 'Run semantic vector search over contact embeddings.',
         strict: true,
         parameters: {
@@ -132,29 +146,33 @@ export class ChatToolsService {
 
   async executeTool(name: string, argumentsJson: string, context: ToolContext): Promise<ToolExecutionResult> {
     const args = parseToolArguments(argumentsJson);
+    const normalizedName = normalizeToolName(name);
+    if (!normalizedName) {
+      throw new Error(`Unsupported tool: ${name}`);
+    }
 
-    if (name === 'crm.searchContacts') {
+    if (normalizedName === CHAT_TOOL_NAMES.searchContacts) {
       const parsed = chatToolSearchContactsSchema.parse(args);
       const output = await this.searchContacts(parsed, context);
-      return { name, rows: Number(output.count ?? 0), output };
+      return { name: normalizedName, rows: Number(output.count ?? 0), output };
     }
 
-    if (name === 'crm.aggregateContacts') {
+    if (normalizedName === CHAT_TOOL_NAMES.aggregateContacts) {
       const parsed = chatToolAggregateContactsSchema.parse(args);
       const output = await this.aggregateContacts(parsed);
-      return { name, rows: Number(output.count ?? 0), output };
+      return { name: normalizedName, rows: Number(output.count ?? 0), output };
     }
 
-    if (name === 'crm.getContactById') {
+    if (normalizedName === CHAT_TOOL_NAMES.getContactById) {
       const parsed = chatToolGetContactByIdSchema.parse(args);
       const output = await this.getContactById(parsed, context);
-      return { name, rows: output.found ? 1 : 0, output };
+      return { name: normalizedName, rows: output.found ? 1 : 0, output };
     }
 
-    if (name === 'crm.semanticSearch') {
+    if (normalizedName === CHAT_TOOL_NAMES.semanticSearch) {
       const parsed = chatToolSemanticSearchSchema.parse(args);
       const output = await this.semanticSearch(parsed, context);
-      return { name, rows: Number(output.count ?? 0), output };
+      return { name: normalizedName, rows: Number(output.count ?? 0), output };
     }
 
     throw new Error(`Unsupported tool: ${name}`);
@@ -393,6 +411,14 @@ function parseToolArguments(argumentsJson: string): unknown {
   } catch {
     throw new Error('Invalid tool arguments JSON');
   }
+}
+
+function normalizeToolName(name: string): string | null {
+  if (Object.values(CHAT_TOOL_NAMES).includes(name as (typeof CHAT_TOOL_NAMES)[keyof typeof CHAT_TOOL_NAMES])) {
+    return name;
+  }
+
+  return LEGACY_CHAT_TOOL_NAME_ALIASES[name] ?? null;
 }
 
 function canIncludeSensitive(

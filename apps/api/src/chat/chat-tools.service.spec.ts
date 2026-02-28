@@ -81,4 +81,13 @@ describe('ChatToolsService', () => {
       }),
     ).rejects.toThrow('Invalid tool arguments JSON');
   });
+
+  it('uses Responses API compatible tool names', () => {
+    const { service } = createService();
+    const tools = service.getToolDefinitions() as Array<{ name?: string }>;
+
+    for (const tool of tools) {
+      expect(tool.name).toMatch(/^[a-zA-Z0-9_-]+$/);
+    }
+  });
 });

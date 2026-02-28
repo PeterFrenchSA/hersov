@@ -1,9 +1,10 @@
 import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
 import session from 'express-session';
-import { RedisStore } from 'connect-redis';
+import RedisStore from 'connect-redis';
 import { createClient } from 'redis';
 import rateLimit from 'express-rate-limit';
+import type { Request } from 'express';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 
@@ -21,7 +22,10 @@ async function bootstrap(): Promise<void> {
   }
 
   if (trustProxy) {
-    app.set('trust proxy', 1);
+    const expressApp = app.getHttpAdapter().getInstance() as {
+      set?: (setting: string, value: unknown) => void;
+    };
+    expressApp.set?.('trust proxy', 1);
   }
 
   app.setGlobalPrefix('api');
@@ -29,7 +33,10 @@ async function bootstrap(): Promise<void> {
 
   app.use(helmet());
   app.enableCors({
-    origin: (origin, callback) => {
+    origin: (
+      origin: string | undefined,
+      callback: (error: Error | null, allow?: boolean) => void,
+    ) => {
       if (!origin || origin === appBaseUrl) {
         callback(null, true);
         return;
@@ -96,7 +103,7 @@ async function bootstrap(): Promise<void> {
       legacyHeaders: false,
       skip: (request) => request.method !== 'POST',
       keyGenerator: (request) => {
-        const sessionUserId = (request as { session?: { user?: { id?: string } } }).session?.user?.id;
+        const sessionUserId = (request as Request & { session?: { user?: { id?: string } } }).session?.user?.id;
         return sessionUserId ? `chat-user:${sessionUserId}` : `chat-anon:${request.ip}`;
       },
       message: { message: 'Too many chat requests for this user. Please slow down.' },
@@ -124,7 +131,7 @@ async function bootstrap(): Promise<void> {
       legacyHeaders: false,
       skip: (request) => request.method !== 'POST',
       keyGenerator: (request) => {
-        const sessionUserId = (request as { session?: { user?: { id?: string } } }).session?.user?.id;
+        const sessionUserId = (request as Request & { session?: { user?: { id?: string } } }).session?.user?.id;
         return sessionUserId ? `insights-user:${sessionUserId}` : `insights-anon:${request.ip}`;
       },
       message: { message: 'Too many insights backfill requests for this user.' },

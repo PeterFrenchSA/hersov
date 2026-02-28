@@ -79,12 +79,12 @@ export class ImportController {
         const mimeAllowed = allowedMimeTypes.includes((file.mimetype ?? '').toLowerCase());
 
         if (extension !== '.csv') {
-          callback(new BadRequestException('Only .csv files are supported'));
+          callback(new BadRequestException('Only .csv files are supported'), false);
           return;
         }
 
         if (!mimeAllowed) {
-          callback(new BadRequestException('Invalid CSV content type'));
+          callback(new BadRequestException('Invalid CSV content type'), false);
           return;
         }
 

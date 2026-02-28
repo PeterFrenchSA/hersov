@@ -22,7 +22,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ImportQueueService } from '../import/import-queue.service';
 
-interface RunCounters {
+export interface RunCounters {
   totalTargets: number;
   processedTargets: number;
   updatedContacts: number;
@@ -306,7 +306,7 @@ export class EnrichmentService {
       throw new NotFoundException('Enrichment run not found');
     }
 
-    if (![EnrichmentRunStatus.QUEUED, EnrichmentRunStatus.PROCESSING].includes(run.status)) {
+    if (run.status !== EnrichmentRunStatus.QUEUED && run.status !== EnrichmentRunStatus.PROCESSING) {
       return {
         id: run.id,
         status: run.status.toLowerCase(),

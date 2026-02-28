@@ -72,7 +72,7 @@ const EMPTY_MAPPING: MappingState = {
   twitter: null,
 };
 
-export default function ImportPage(): JSX.Element {
+export default function ImportPage() {
   const [file, setFile] = useState<File | null>(null);
   const [batchId, setBatchId] = useState<string | null>(null);
   const [headers, setHeaders] = useState<string[]>([]);

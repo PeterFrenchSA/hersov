@@ -22,7 +22,7 @@ type ReviewResponse = {
   };
 };
 
-export default function ReviewPage(): JSX.Element {
+export default function ReviewPage() {
   const [status, setStatus] = useState<'pending' | 'approved' | 'rejected'>('pending');
   const [kind, setKind] = useState<'all' | 'tag' | 'entity' | 'relationship'>('all');
   const [rows, setRows] = useState<ReviewRow[]>([]);

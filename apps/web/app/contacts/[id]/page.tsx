@@ -68,7 +68,7 @@ type ContactNetworkResponse = {
 
 type TabKey = 'profile' | 'insights' | 'network';
 
-export default function ContactDetailsPage(): JSX.Element {
+export default function ContactDetailsPage() {
   const params = useParams<{ id: string }>();
   const [contact, setContact] = useState<Contact | null>(null);
   const [insights, setInsights] = useState<ContactInsightsResponse | null>(null);

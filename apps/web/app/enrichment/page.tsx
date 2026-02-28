@@ -32,7 +32,7 @@ const STATUS_OPTIONS: Array<{ value: '' | RunStatus; label: string }> = [
   { value: 'canceled', label: 'Canceled' },
 ];
 
-export default function EnrichmentRunsPage(): JSX.Element {
+export default function EnrichmentRunsPage() {
   const [statusFilter, setStatusFilter] = useState<'' | RunStatus>('');
   const [refreshTick, setRefreshTick] = useState(0);
   const [runs, setRuns] = useState<EnrichmentRunRow[]>([]);

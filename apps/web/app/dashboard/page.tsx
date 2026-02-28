@@ -1,4 +1,4 @@
-export default function DashboardPage(): JSX.Element {
+export default function DashboardPage() {
   return (
     <section className="grid" style={{ gap: '1.25rem' }}>
       <h1>Dashboard</h1>

@@ -3,7 +3,7 @@ import Link from 'next/link';
 import './globals.css';
 import { LogoutButton } from '../components/logout-button';
 
-export default function RootLayout({ children }: { children: ReactNode }): JSX.Element {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body>

@@ -10,7 +10,7 @@ type InsightsDashboardResponse = {
   topConnectors: Array<{ contactId: string; fullName: string; connectorScore: number; computedAt: string }>;
 };
 
-export default function InsightsDashboardPage(): JSX.Element {
+export default function InsightsDashboardPage() {
   const [dashboard, setDashboard] = useState<InsightsDashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

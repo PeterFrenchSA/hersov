@@ -38,7 +38,7 @@ type ResultRow = {
   createdAt: string;
 };
 
-export default function EnrichmentRunDetailPage(): JSX.Element {
+export default function EnrichmentRunDetailPage() {
   const params = useParams<{ id: string }>();
   const runId = params.id;
 

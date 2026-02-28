@@ -24,7 +24,7 @@ type EmbeddingsStatus = {
   lastRunAt: string | null;
 };
 
-export default function AdminSettingsPage(): JSX.Element {
+export default function AdminSettingsPage() {
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
   const [embeddingsStatus, setEmbeddingsStatus] = useState<EmbeddingsStatus | null>(null);
   const [loading, setLoading] = useState(true);

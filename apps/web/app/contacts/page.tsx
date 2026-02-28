@@ -21,7 +21,7 @@ type ContactRow = {
 
 type SearchMode = 'lexical' | 'semantic';
 
-export default function ContactsPage(): JSX.Element {
+export default function ContactsPage() {
   const [query, setQuery] = useState('');
   const [search, setSearch] = useState('');
   const [searchMode, setSearchMode] = useState<SearchMode>('lexical');

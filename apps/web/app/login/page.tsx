@@ -3,7 +3,7 @@
 import { FormEvent, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-export default function LoginPage(): JSX.Element {
+export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = useMemo(() => searchParams.get('next') ?? '/dashboard', [searchParams]);

@@ -18,7 +18,7 @@ type ProviderStatus = {
 
 type MergePolicy = 'fill_missing_only' | 'overwrite_if_higher_confidence';
 
-export default function NewEnrichmentRunPage(): JSX.Element {
+export default function NewEnrichmentRunPage() {
   const router = useRouter();
 
   const [providers, setProviders] = useState<ProviderStatus[]>([]);

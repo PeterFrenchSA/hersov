@@ -19,7 +19,7 @@ type ChatMessage = {
   createdAt: string;
 };
 
-export default function ChatPage(): JSX.Element {
+export default function ChatPage() {
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [threadId, setThreadId] = useState<string | undefined>(undefined);
   const [messages, setMessages] = useState<ChatMessage[]>([]);

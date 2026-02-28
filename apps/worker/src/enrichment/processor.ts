@@ -29,6 +29,7 @@ export interface EnrichmentRunJobPayload {
 }
 
 interface RunCounters {
+  [key: string]: number;
   totalTargets: number;
   processedTargets: number;
   updatedContacts: number;
@@ -50,6 +51,40 @@ interface ErrorSample {
   rowIndex: number;
   message: string;
 }
+
+type EnrichmentContactRow = {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  fullName: string;
+  notesRaw: string | null;
+  locationCity: string | null;
+  locationCountry: string | null;
+  currentTitle: string | null;
+  currentCompanyId: string | null;
+  currentCompany: { id: string; name: string; domain: string | null } | null;
+  contactMethods: Array<{
+    id: string;
+    type: ContactMethodType;
+    value: string;
+    isPrimary: boolean;
+    verifiedAt: Date | null;
+  }>;
+  tags: Array<{
+    tagId: string;
+    confidence: number | null;
+    tag: {
+      id: string;
+      name: string;
+      category: string;
+    };
+  }>;
+  fieldConfidence: Array<{
+    field: string;
+    confidence: number;
+    provider: string;
+  }>;
+};
 
 const contactScalarFieldConfig: Record<
   Exclude<EnrichmentFieldName, 'company_name'>,
@@ -135,7 +170,11 @@ export function createEnrichmentRunProcessor(prismaClient: PrismaClient) {
       throw new Error(`Enrichment run ${payload.runId} not found`);
     }
 
-    if ([EnrichmentRunStatus.CANCELED, EnrichmentRunStatus.COMPLETED, EnrichmentRunStatus.FAILED].includes(run.status)) {
+    if (
+      run.status === EnrichmentRunStatus.CANCELED
+      || run.status === EnrichmentRunStatus.COMPLETED
+      || run.status === EnrichmentRunStatus.FAILED
+    ) {
       return;
     }
 
@@ -259,7 +298,7 @@ export function createEnrichmentRunProcessor(prismaClient: PrismaClient) {
           return;
         }
 
-        const contacts = await prismaClient.contact.findMany({
+        const contacts: EnrichmentContactRow[] = await prismaClient.contact.findMany({
           where: runWhere,
           take: getBatchSize(),
           ...(cursorId
@@ -419,39 +458,7 @@ function resolveProviders(
 async function processSingleContact(input: {
   prismaClient: PrismaClient;
   runId: string;
-  contact: {
-    id: string;
-    firstName: string | null;
-    lastName: string | null;
-    fullName: string;
-    notesRaw: string | null;
-    locationCity: string | null;
-    locationCountry: string | null;
-    currentTitle: string | null;
-    currentCompanyId: string | null;
-    currentCompany: { id: string; name: string; domain: string | null } | null;
-    contactMethods: Array<{
-      id: string;
-      type: ContactMethodType;
-      value: string;
-      isPrimary: boolean;
-      verifiedAt: Date | null;
-    }>;
-    tags: Array<{
-      tagId: string;
-      confidence: number | null;
-      tag: {
-        id: string;
-        name: string;
-        category: string;
-      };
-    }>;
-    fieldConfidence: Array<{
-      field: string;
-      confidence: number;
-      provider: string;
-    }>;
-  };
+  contact: EnrichmentContactRow;
   config: CreateEnrichmentRunInput;
   providers: Map<EnrichmentProviderName, EnrichmentProvider>;
   limiters: Map<EnrichmentProviderName, ProviderRateLimiter>;
@@ -789,7 +796,11 @@ async function processSingleContact(input: {
           item.tag.category.toLowerCase() === tagCandidate.category.toLowerCase(),
       );
 
-      if (existingContactTag?.confidence !== null && existingContactTag.confidence >= tagCandidate.confidence) {
+      if (
+        existingContactTag
+        && existingContactTag.confidence !== null
+        && existingContactTag.confidence >= tagCandidate.confidence
+      ) {
         continue;
       }
 
@@ -1063,14 +1074,14 @@ async function writeAuditLog(
 ): Promise<void> {
   try {
     await prismaClient.auditLog.create({
-      data: {
-        actorUserId: input.actorUserId,
-        action: input.action,
-        entityType: input.entityType,
-        entityId: input.entityId,
-        metaJson: input.metaJson,
-      },
-    });
+        data: {
+          actorUserId: input.actorUserId,
+          action: input.action,
+          entityType: input.entityType,
+          entityId: input.entityId,
+          metaJson: input.metaJson as Prisma.InputJsonValue | undefined,
+        },
+      });
   } catch (error) {
     console.warn('Failed to write enrichment audit log', error);
   }

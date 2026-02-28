@@ -1,5 +1,6 @@
 import { EntityType, LlmRunStatus, ReviewKind, ReviewStatus } from '@prisma/client';
 import { createInsightsUpsertContactProcessor } from './processor';
+import type { InsightsExtractionResult } from './openai';
 
 describe('insights processor integration', () => {
   let originalInsightsEnabled: string | undefined;
@@ -92,41 +93,43 @@ describe('insights processor integration', () => {
       },
     };
 
-    const processor = createInsightsUpsertContactProcessor(prismaMock, {
-      extractInsights: jest.fn(async () => ({
-        model: 'gpt-test',
-        tokensIn: 100,
-        tokensOut: 80,
-        output: {
-          meeting_context: {
-            event_name: 'Monaco Summit',
-            year: 2025,
-          },
-          tags: [
-            {
-              category: 'sector',
-              value: 'climate tech',
-              confidence: 0.95,
-              evidence_snippet: 'Focus on climate tech.',
-            },
-          ],
-          entities: [
-            {
-              type: 'company',
-              name: 'Acme Capital',
-              confidence: 0.82,
-              evidence_snippet: 'Acme Capital',
-            },
-          ],
-          relationship_clues: [],
-          investor_signals: {
-            is_investor: true,
-            investor_type: 'PE',
-            sectors: ['climate tech'],
-          },
-          topics: ['climate tech'],
+    const mockExtractionResult: InsightsExtractionResult = {
+      model: 'gpt-test',
+      tokensIn: 100,
+      tokensOut: 80,
+      output: {
+        meeting_context: {
+          event_name: 'Monaco Summit',
+          year: 2025,
         },
-      })),
+        tags: [
+          {
+            category: 'sector',
+            value: 'climate tech',
+            confidence: 0.95,
+            evidence_snippet: 'Focus on climate tech.',
+          },
+        ],
+        entities: [
+          {
+            type: 'company',
+            name: 'Acme Capital',
+            confidence: 0.82,
+            evidence_snippet: 'Acme Capital',
+          },
+        ],
+        relationship_clues: [],
+        investor_signals: {
+          is_investor: true,
+          investor_type: 'PE',
+          sectors: ['climate tech'],
+        },
+        topics: ['climate tech'],
+      },
+    };
+
+    const processor = createInsightsUpsertContactProcessor(prismaMock, {
+      extractInsights: jest.fn(async () => mockExtractionResult),
       enqueueGraphRecompute: jest.fn(async () => undefined),
     });
 

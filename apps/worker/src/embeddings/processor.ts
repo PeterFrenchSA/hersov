@@ -152,7 +152,7 @@ export function createEmbeddingsBackfillProcessor(prismaClient: PrismaClient) {
       while (queuedCount < totalLimit) {
         const remaining = totalLimit - queuedCount;
 
-        const contacts = await prismaClient.contact.findMany({
+        const contacts: Array<{ id: string }> = await prismaClient.contact.findMany({
           where,
           orderBy: { id: 'asc' },
           take: Math.min(batchSize, remaining),
@@ -169,7 +169,7 @@ export function createEmbeddingsBackfillProcessor(prismaClient: PrismaClient) {
           break;
         }
 
-        const contactIds = contacts.map((item) => item.id);
+        const contactIds = contacts.map((item: { id: string }) => item.id);
         await enqueueEmbeddingUpsertContactJobs(contactIds, 'backfill');
         queuedCount += contactIds.length;
         cursorId = contacts[contacts.length - 1]?.id ?? null;
@@ -292,14 +292,14 @@ async function writeAuditLog(
 ): Promise<void> {
   try {
     await prismaClient.auditLog.create({
-      data: {
-        actorUserId: input.actorUserId,
-        action: input.action,
-        entityType: input.entityType,
-        entityId: input.entityId,
-        metaJson: input.metaJson,
-      },
-    });
+        data: {
+          actorUserId: input.actorUserId,
+          action: input.action,
+          entityType: input.entityType,
+          entityId: input.entityId,
+          metaJson: input.metaJson as Prisma.InputJsonValue | undefined,
+        },
+      });
   } catch (error) {
     console.warn('Failed to write embeddings audit log', error);
   }

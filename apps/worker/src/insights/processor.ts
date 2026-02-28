@@ -300,7 +300,7 @@ export function createInsightsBackfillProcessor(
       while (processed < totalLimit) {
         const remaining = totalLimit - processed;
 
-        const contacts = await prismaClient.contact.findMany({
+        const contacts: Array<{ id: string }> = await prismaClient.contact.findMany({
           where,
           orderBy: { id: 'asc' },
           take: Math.min(batchSize, remaining),
@@ -1034,14 +1034,14 @@ async function writeAuditLog(
 ): Promise<void> {
   try {
     await prismaClient.auditLog.create({
-      data: {
-        actorUserId: input.actorUserId,
-        action: input.action,
-        entityType: input.entityType,
-        entityId: input.entityId,
-        metaJson: input.metaJson,
-      },
-    });
+        data: {
+          actorUserId: input.actorUserId,
+          action: input.action,
+          entityType: input.entityType,
+          entityId: input.entityId,
+          metaJson: input.metaJson as Prisma.InputJsonValue | undefined,
+        },
+      });
   } catch (error) {
     console.warn('Failed to write insights audit log', error);
   }

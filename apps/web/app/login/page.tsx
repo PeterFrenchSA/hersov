@@ -1,9 +1,24 @@
 'use client';
 
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, Suspense, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={(
+        <section className="card" style={{ maxWidth: 420, margin: '5rem auto' }}>
+          <h1>Login</h1>
+          <p>Loading...</p>
+        </section>
+      )}
+    >
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = useMemo(() => searchParams.get('next') ?? '/dashboard', [searchParams]);

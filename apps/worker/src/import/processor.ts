@@ -43,6 +43,18 @@ interface BatchCounters {
   errorCount: number;
 }
 
+interface CompletedRow {
+  rowIndex: number;
+  rawRow: Record<string, unknown>;
+  result: RowProcessResult;
+}
+
+interface InFlightRowTask {
+  promise: Promise<{ task: InFlightRowTask; value: CompletedRow }>;
+}
+
+type LockMap = Map<string, Promise<void>>;
+
 const prisma = new PrismaClient();
 
 export const processImportJob = createImportProcessor(prisma);
@@ -99,8 +111,10 @@ export function createImportProcessor(prismaClient: PrismaClient) {
     const errorSamples: ErrorSample[] = [];
     const rowRecordsBuffer: Prisma.ImportRowCreateManyInput[] = [];
     const companyCache = new Map<string, string>();
+    const lockMap: LockMap = new Map<string, Promise<void>>();
     const contactsToEmbed = new Set<string>();
     const storeRawRows = shouldStoreRawRows();
+    const rowConcurrency = getImportRowConcurrency();
 
     const batchWriteIntervalRows = getBatchWriteIntervalRows();
     const batchWriteIntervalMs = 2_000;
@@ -141,80 +155,81 @@ export function createImportProcessor(prismaClient: PrismaClient) {
       stream.pipe(parser);
 
       let rowIndex = 1;
+      const inFlight = new Set<InFlightRowTask>();
 
       for await (const rawRow of parser as AsyncIterable<Record<string, unknown>>) {
-        counters.processedRows += 1;
+        const currentRowIndex = rowIndex;
+        const runTask = async (): Promise<CompletedRow> => {
+          try {
+            const result = await processRow(
+              prismaClient,
+              batchId,
+              rawRow,
+              mapping,
+              companyCache,
+              lockMap,
+            );
 
-        let result: RowProcessResult;
+            return {
+              rowIndex: currentRowIndex,
+              rawRow,
+              result,
+            };
+          } catch (error) {
+            return {
+              rowIndex: currentRowIndex,
+              rawRow,
+              result: {
+                outcome: 'error',
+                errorMessage: (error as Error).message,
+              },
+            };
+          }
+        };
 
-        try {
-          result = await processRow(
-            prismaClient,
+        const task = {} as InFlightRowTask;
+        task.promise = runTask().then((value) => ({ task, value }));
+        inFlight.add(task);
+
+        if (inFlight.size >= rowConcurrency) {
+          const completed = await Promise.race(Array.from(inFlight, (entry) => entry.promise));
+          inFlight.delete(completed.task);
+          await handleCompletedRow(
             batchId,
-            rawRow,
-            mapping,
-            companyCache,
+            completed.value,
+            counters,
+            errorSamples,
+            rowRecordsBuffer,
+            contactsToEmbed,
+            storeRawRows,
           );
-        } catch (error) {
-          result = {
-            outcome: 'error',
-            errorMessage: (error as Error).message,
-          };
-        }
 
-        if (result.outcome === 'inserted') {
-          counters.insertedCount += 1;
-        } else if (result.outcome === 'updated') {
-          counters.updatedCount += 1;
-        } else if (result.outcome === 'skipped') {
-          counters.skippedCount += 1;
-        } else if (result.outcome === 'duplicate') {
-          counters.duplicateCount += 1;
-        } else {
-          counters.errorCount += 1;
-        }
+          const now = Date.now();
+          const shouldWriteProgress =
+            counters.processedRows % batchWriteIntervalRows === 0 || now - lastProgressWriteAt >= batchWriteIntervalMs;
 
-        if ((result.outcome === 'inserted' || result.outcome === 'updated') && result.contactId) {
-          contactsToEmbed.add(result.contactId);
-        }
-
-        if (result.outcome === 'error' && result.errorMessage) {
-          if (errorSamples.length < getErrorSampleLimit()) {
-            errorSamples.push({
-              rowIndex,
-              message: result.errorMessage,
-            });
+          if (shouldWriteProgress) {
+            await flushRowsBuffer(prismaClient, rowRecordsBuffer);
+            await flushBatchCounters(prismaClient, batchId, counters, errorSamples);
+            lastProgressWriteAt = now;
           }
         }
 
-        if (storeRawRows) {
-          rowRecordsBuffer.push({
-            batchId,
-            rowIndex,
-            rawJson: rawRow as Prisma.InputJsonValue,
-            normalizedJson: result.normalized
-              ? (result.normalized as unknown as Prisma.InputJsonValue)
-              : undefined,
-            outcome: toImportRowOutcome(result.outcome),
-            contactId: result.contactId,
-            errorMessage: result.errorMessage,
-          });
-        }
-
-        if (rowRecordsBuffer.length >= 25) {
-          await flushRowsBuffer(prismaClient, rowRecordsBuffer);
-        }
-
-        const now = Date.now();
-        const shouldWriteProgress =
-          counters.processedRows % batchWriteIntervalRows === 0 || now - lastProgressWriteAt >= batchWriteIntervalMs;
-
-        if (shouldWriteProgress) {
-          await flushBatchCounters(prismaClient, batchId, counters, errorSamples);
-          lastProgressWriteAt = now;
-        }
-
         rowIndex += 1;
+      }
+
+      while (inFlight.size > 0) {
+        const completed = await Promise.race(Array.from(inFlight, (entry) => entry.promise));
+        inFlight.delete(completed.task);
+        await handleCompletedRow(
+          batchId,
+          completed.value,
+          counters,
+          errorSamples,
+          rowRecordsBuffer,
+          contactsToEmbed,
+          storeRawRows,
+        );
       }
 
       await flushRowsBuffer(prismaClient, rowRecordsBuffer);
@@ -277,6 +292,7 @@ async function processRow(
   rawRow: Record<string, unknown>,
   mapping: ImportColumnMappingInput,
   companyCache: Map<string, string>,
+  lockMap: LockMap,
 ): Promise<RowProcessResult> {
   const normalized = normalizeCsvRow(rawRow, mapping);
 
@@ -288,87 +304,90 @@ async function processRow(
     };
   }
 
-  const deterministicMatch = await findDeterministicContactMatch(prismaClient, normalized);
+  const lockKeys = buildImportLockKeys(normalized);
 
-  if (!deterministicMatch && normalized.fullName) {
-    const fuzzyDuplicate = await findFuzzyDuplicate(prismaClient, normalized);
-    if (fuzzyDuplicate) {
-      return {
-        outcome: 'duplicate',
+  return runWithLocks(lockMap, lockKeys, async () => {
+    const deterministicMatch = await findDeterministicContactMatch(prismaClient, normalized);
+
+    if (!deterministicMatch && normalized.fullName) {
+      const fuzzyDuplicate = await findFuzzyDuplicate(prismaClient, normalized);
+      if (fuzzyDuplicate) {
+        return {
+          outcome: 'duplicate',
+          normalized,
+          contactId: fuzzyDuplicate.contactId,
+          errorMessage: `Potential duplicate (score=${fuzzyDuplicate.score.toFixed(3)}), skipped by default`,
+        };
+      }
+    }
+
+    if (deterministicMatch) {
+      const updateResult = await updateExistingContact(
+        prismaClient,
+        deterministicMatch.contactId,
         normalized,
-        contactId: fuzzyDuplicate.contactId,
-        errorMessage: `Potential duplicate (score=${fuzzyDuplicate.score.toFixed(3)}), skipped by default`,
+        batchId,
+        companyCache,
+        lockMap,
+      );
+
+      return {
+        outcome: updateResult.updated ? 'updated' : 'skipped',
+        contactId: deterministicMatch.contactId,
+        normalized,
+        errorMessage: updateResult.updated ? undefined : 'Matched existing contact with no new fields to apply',
       };
     }
-  }
 
-  if (deterministicMatch) {
-    const updateResult = await updateExistingContact(
+    const createdContactId = await createContactFromImport(
       prismaClient,
-      deterministicMatch.contactId,
-      normalized,
       batchId,
+      normalized,
       companyCache,
+      lockMap,
     );
 
     return {
-      outcome: updateResult.updated ? 'updated' : 'skipped',
-      contactId: deterministicMatch.contactId,
+      outcome: 'inserted',
+      contactId: createdContactId,
       normalized,
-      errorMessage: updateResult.updated ? undefined : 'Matched existing contact with no new fields to apply',
     };
-  }
-
-  const createdContactId = await createContactFromImport(
-    prismaClient,
-    batchId,
-    normalized,
-    companyCache,
-  );
-
-  return {
-    outcome: 'inserted',
-    contactId: createdContactId,
-    normalized,
-  };
+  });
 }
 
 async function findDeterministicContactMatch(
   prismaClient: PrismaClient,
   candidate: NormalizedImportCandidate,
 ): Promise<{ contactId: string; matchedBy: 'email' | 'phone' | 'linkedin' } | null> {
-  const emailMatch =
+  const [emailMatch, phoneMatch, linkedinMatch] = await Promise.all([
     candidate.emails.length > 0
-      ? await prismaClient.contactMethod.findFirst({
+      ? prismaClient.contactMethod.findFirst({
           where: {
             type: ContactMethodType.EMAIL,
             value: { in: candidate.emails },
           },
           select: { contactId: true },
         })
-      : null;
-
-  const phoneMatch =
+      : Promise.resolve(null),
     candidate.phones.length > 0
-      ? await prismaClient.contactMethod.findFirst({
+      ? prismaClient.contactMethod.findFirst({
           where: {
             type: ContactMethodType.PHONE,
             value: { in: candidate.phones },
           },
           select: { contactId: true },
         })
-      : null;
-
-  const linkedinMatch =
+      : Promise.resolve(null),
     candidate.linkedin
-      ? await prismaClient.contactMethod.findFirst({
+      ? prismaClient.contactMethod.findFirst({
           where: {
             type: ContactMethodType.LINKEDIN,
             value: candidate.linkedin,
           },
           select: { contactId: true },
         })
-      : null;
+      : Promise.resolve(null),
+  ]);
 
   return resolveDeterministicMatch({
     emailContactId: emailMatch?.contactId,
@@ -434,6 +453,7 @@ async function updateExistingContact(
   candidate: NormalizedImportCandidate,
   batchId: string,
   companyCache: Map<string, string>,
+  lockMap: LockMap,
 ): Promise<{ updated: boolean }> {
   const contact = await prismaClient.contact.findUnique({
     where: { id: contactId },
@@ -473,7 +493,7 @@ async function updateExistingContact(
   }
 
   if (!contact.currentCompanyId && candidate.company) {
-    const companyId = await getOrCreateCompanyId(prismaClient, candidate.company, companyCache);
+    const companyId = await getOrCreateCompanyId(prismaClient, candidate.company, companyCache, lockMap);
     updateData.currentCompanyId = companyId;
   }
 
@@ -536,9 +556,10 @@ async function createContactFromImport(
   batchId: string,
   candidate: NormalizedImportCandidate,
   companyCache: Map<string, string>,
+  lockMap: LockMap,
 ): Promise<string> {
   const companyId = candidate.company
-    ? await getOrCreateCompanyId(prismaClient, candidate.company, companyCache)
+    ? await getOrCreateCompanyId(prismaClient, candidate.company, companyCache, lockMap)
     : null;
 
   const fallbackFullName =
@@ -593,7 +614,9 @@ async function getOrCreateCompanyId(
   prismaClient: PrismaClient,
   companyName: string,
   cache: Map<string, string>,
+  lockMap: LockMap,
 ): Promise<string> {
+  return runWithLocks(lockMap, [`company:${companyName.toLowerCase()}`], async () => {
   const key = companyName.toLowerCase();
   const cachedCompanyId = cache.get(key);
   if (cachedCompanyId) {
@@ -628,6 +651,7 @@ async function getOrCreateCompanyId(
 
   cache.set(key, createdCompany.id);
   return createdCompany.id;
+  });
 }
 
 function buildCandidateMethods(candidate: NormalizedImportCandidate): Array<{ type: ContactMethodType; value: string }> {
@@ -674,6 +698,131 @@ function hasImportableData(candidate: NormalizedImportCandidate): boolean {
       candidate.company ||
       candidate.notesContext,
   );
+}
+
+async function handleCompletedRow(
+  batchId: string,
+  completedRow: CompletedRow,
+  counters: BatchCounters,
+  errorSamples: ErrorSample[],
+  rowRecordsBuffer: Prisma.ImportRowCreateManyInput[],
+  contactsToEmbed: Set<string>,
+  storeRawRows: boolean,
+): Promise<void> {
+  counters.processedRows += 1;
+
+  switch (completedRow.result.outcome) {
+    case 'inserted':
+      counters.insertedCount += 1;
+      break;
+    case 'updated':
+      counters.updatedCount += 1;
+      break;
+    case 'skipped':
+      counters.skippedCount += 1;
+      break;
+    case 'duplicate':
+      counters.duplicateCount += 1;
+      break;
+    case 'error':
+      counters.errorCount += 1;
+      if (completedRow.result.errorMessage && errorSamples.length < getErrorSampleLimit()) {
+        errorSamples.push({
+          rowIndex: completedRow.rowIndex,
+          message: completedRow.result.errorMessage,
+        });
+      }
+      break;
+  }
+
+  if (
+    completedRow.result.contactId &&
+    (completedRow.result.outcome === 'inserted' || completedRow.result.outcome === 'updated')
+  ) {
+    contactsToEmbed.add(completedRow.result.contactId);
+  }
+
+  if (!storeRawRows) {
+    return;
+  }
+
+  rowRecordsBuffer.push({
+    batchId,
+    rowIndex: completedRow.rowIndex,
+    rawJson: completedRow.rawRow as unknown as Prisma.InputJsonValue,
+    normalizedJson: completedRow.result.normalized as unknown as Prisma.InputJsonValue | undefined,
+    outcome: toImportRowOutcome(completedRow.result.outcome),
+    contactId: completedRow.result.contactId,
+    errorMessage: completedRow.result.errorMessage,
+  });
+}
+
+function buildImportLockKeys(candidate: NormalizedImportCandidate): string[] {
+  const keys = new Set<string>();
+
+  for (const email of candidate.emails) {
+    keys.add(`email:${email}`);
+  }
+
+  for (const phone of candidate.phones) {
+    keys.add(`phone:${phone}`);
+  }
+
+  if (candidate.linkedin) {
+    keys.add(`linkedin:${candidate.linkedin}`);
+  }
+
+  if (keys.size === 0 && candidate.fullName) {
+    const fallbackParts = [
+      candidate.fullName,
+      candidate.company ?? '',
+      candidate.city ?? '',
+      candidate.country ?? '',
+    ]
+      .map((part) => sanitizeLockKeyPart(part))
+      .filter((part) => part.length > 0);
+
+    if (fallbackParts.length > 0) {
+      keys.add(`identity:${fallbackParts.join('|')}`);
+    }
+  }
+
+  return Array.from(keys).sort();
+}
+
+async function runWithLocks<T>(
+  lockMap: LockMap,
+  keys: string[],
+  callback: () => Promise<T>,
+): Promise<T> {
+  const uniqueKeys = Array.from(new Set(keys.filter((key) => key.length > 0))).sort();
+  const releases: Array<() => void> = [];
+
+  for (const key of uniqueKeys) {
+    const previous = lockMap.get(key) ?? Promise.resolve();
+    let releaseCurrent!: () => void;
+    const current = new Promise<void>((resolve) => {
+      releaseCurrent = resolve;
+    });
+    const queued = previous.catch(() => undefined).then(() => current);
+    lockMap.set(key, queued);
+    await previous.catch(() => undefined);
+
+    releases.push(() => {
+      releaseCurrent();
+      if (lockMap.get(key) === queued) {
+        lockMap.delete(key);
+      }
+    });
+  }
+
+  try {
+    return await callback();
+  } finally {
+    for (const release of releases.reverse()) {
+      release();
+    }
+  }
 }
 
 async function flushRowsBuffer(
@@ -781,4 +930,17 @@ function getErrorSampleLimit(): number {
   }
 
   return Math.floor(parsed);
+}
+
+function getImportRowConcurrency(): number {
+  const parsed = Number(process.env.IMPORT_ROW_CONCURRENCY ?? 8);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return 8;
+  }
+
+  return Math.min(32, Math.floor(parsed));
+}
+
+function sanitizeLockKeyPart(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ');
 }

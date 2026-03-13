@@ -20,8 +20,25 @@ type Contact = {
   locationCity?: string | null;
   locationCountry?: string | null;
   notesRaw?: string | null;
-  currentCompany?: { name: string } | null;
+  currentCompany?: { id: string; name: string } | null;
   contactMethods: ContactMethod[];
+  tags: Array<{
+    category: string;
+    name: string;
+    confidence: number | null;
+    source: string | null;
+  }>;
+  connectorScore: number | null;
+  lastEnrichedAt: string | null;
+  recentEnrichmentChanges: Array<{
+    id: string;
+    field: string;
+    oldValue: string | null;
+    newValue: string | null;
+    provider: string;
+    confidence: number | null;
+    createdAt: string;
+  }>;
 };
 
 type ContactInsightsResponse = {
@@ -279,18 +296,38 @@ export default function ContactDetailsPage() {
       {activeTab === 'profile' ? (
         <>
           <article className="card">
-            <p>
-              <strong>Company:</strong> {contact.currentCompany?.name ?? '-'}
-            </p>
-            <p>
-              <strong>Title:</strong> {contact.currentTitle ?? '-'}
-            </p>
-            <p>
-              <strong>Location:</strong> {[contact.locationCity, contact.locationCountry].filter(Boolean).join(', ') || '-'}
-            </p>
-            <p>
-              <strong>Notes:</strong> {contact.notesRaw ?? '-'}
-            </p>
+            <h2 style={{ marginTop: 0 }}>Summary</h2>
+            <p><strong>Company:</strong> {contact.currentCompany?.name ?? '-'}</p>
+            <p><strong>Title:</strong> {contact.currentTitle ?? '-'}</p>
+            <p><strong>Location:</strong> {[contact.locationCity, contact.locationCountry].filter(Boolean).join(', ') || '-'}</p>
+            <p><strong>Connector score:</strong> {contact.connectorScore?.toFixed(2) ?? 'Unscored'}</p>
+            <p><strong>Last enriched:</strong> {contact.lastEnrichedAt ? new Date(contact.lastEnrichedAt).toLocaleString() : '-'}</p>
+          </article>
+          <article className="card">
+            <h2 style={{ marginTop: 0 }}>Purpose / Tags</h2>
+            {contact.tags.length > 0 ? (
+              <div style={{ display: 'flex', gap: '0.45rem', flexWrap: 'wrap' }}>
+                {contact.tags.map((tagItem) => (
+                  <span
+                    key={`${tagItem.category}:${tagItem.name}`}
+                    style={{
+                      border: '1px solid #cbd5e1',
+                      borderRadius: 999,
+                      padding: '0.2rem 0.55rem',
+                      fontSize: '0.82rem',
+                    }}
+                  >
+                    {tagItem.category}: {tagItem.name}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p>No structured tags yet.</p>
+            )}
+          </article>
+          <article className="card">
+            <h2 style={{ marginTop: 0 }}>Relationship context</h2>
+            <p style={{ whiteSpace: 'pre-wrap' }}>{contact.notesRaw ?? '-'}</p>
           </article>
           <article className="card">
             <h2>Contact methods</h2>
@@ -302,6 +339,33 @@ export default function ContactDetailsPage() {
                 </li>
               ))}
             </ul>
+          </article>
+          <article className="card">
+            <h2 style={{ marginTop: 0 }}>Recent enrichment changes</h2>
+            {contact.recentEnrichmentChanges.length > 0 ? (
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Field</th>
+                    <th>Change</th>
+                    <th>Provider</th>
+                    <th>When</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {contact.recentEnrichmentChanges.map((change) => (
+                    <tr key={change.id}>
+                      <td>{change.field}</td>
+                      <td>{`${change.oldValue ?? '-'} -> ${change.newValue ?? '-'}`}</td>
+                      <td>{change.provider}</td>
+                      <td>{new Date(change.createdAt).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p>No enrichment history yet.</p>
+            )}
           </article>
           <article className="card grid" style={{ gap: '0.75rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>

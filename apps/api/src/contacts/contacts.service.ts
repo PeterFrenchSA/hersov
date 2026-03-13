@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { RelationshipStatus } from '@prisma/client';
-import type { ContactPatchInput, ContactsQueryInput } from '@hersov/shared';
+import { ContactMethodType, Prisma, RelationshipStatus } from '@prisma/client';
+import type { ContactCreateInput, ContactPatchInput, ContactsQueryInput } from '@hersov/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 
@@ -12,32 +12,135 @@ export class ContactsService {
   ) {}
 
   async list(query: ContactsQueryInput): Promise<{
-    data: unknown[];
+    data: Array<{
+      id: string;
+      fullName: string;
+      currentTitle: string | null;
+      locationCity: string | null;
+      locationCountry: string | null;
+      createdAt: string;
+      updatedAt: string;
+      lastEnrichedAt: string | null;
+      currentCompany: { id: string; name: string } | null;
+      contactMethods: Array<{
+        id: string;
+        type: string;
+        value: string;
+        isPrimary: boolean;
+      }>;
+      tags: Array<{ category: string; name: string }>;
+      connectorScore: number | null;
+    }>;
     pagination: { page: number; pageSize: number; total: number };
   }> {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
     const q = query.q?.trim();
+    const insensitive = Prisma.QueryMode.insensitive;
+    const andClauses: Prisma.ContactWhereInput[] = [];
 
-    const where = {
-      ...(q
-        ? {
-            OR: [
-              { fullName: { contains: q, mode: 'insensitive' as const } },
-              { firstName: { contains: q, mode: 'insensitive' as const } },
-              { lastName: { contains: q, mode: 'insensitive' as const } },
-              { currentCompany: { is: { name: { contains: q, mode: 'insensitive' as const } } } },
-            ],
-          }
-        : {}),
-      ...(query.importBatchId ? { sourceImportBatchId: query.importBatchId } : {}),
-    };
+    if (q) {
+      andClauses.push({
+        OR: [
+          { fullName: { contains: q, mode: insensitive } },
+          { firstName: { contains: q, mode: insensitive } },
+          { lastName: { contains: q, mode: insensitive } },
+          { notesRaw: { contains: q, mode: insensitive } },
+          { currentTitle: { contains: q, mode: insensitive } },
+          { currentCompany: { is: { name: { contains: q, mode: insensitive } } } },
+          {
+            tags: {
+              some: {
+                tag: {
+                  OR: [
+                    { name: { contains: q, mode: insensitive } },
+                    { category: { contains: q, mode: insensitive } },
+                  ],
+                },
+              },
+            },
+          },
+        ],
+      });
+    }
+
+    if (query.importBatchId) {
+      andClauses.push({ sourceImportBatchId: query.importBatchId });
+    }
+
+    if (query.company) {
+      andClauses.push({
+        currentCompany: {
+          is: {
+            name: { contains: query.company, mode: insensitive },
+          },
+        },
+      });
+    }
+
+    if (query.title) {
+      andClauses.push({ currentTitle: { contains: query.title, mode: insensitive } });
+    }
+
+    if (query.country) {
+      andClauses.push({ locationCountry: { contains: query.country, mode: insensitive } });
+    }
+
+    if (query.city) {
+      andClauses.push({ locationCity: { contains: query.city, mode: insensitive } });
+    }
+
+    if (query.tag) {
+      andClauses.push(buildTagWhereClause(query.tag));
+    }
+
+    if (query.missingEmail) {
+      andClauses.push({ contactMethods: { none: { type: ContactMethodType.EMAIL } } });
+    }
+
+    if (query.missingLinkedin) {
+      andClauses.push({ contactMethods: { none: { type: ContactMethodType.LINKEDIN } } });
+    }
+
+    if (query.missingLocation) {
+      andClauses.push({
+        OR: [
+          { locationCity: null },
+          { locationCountry: null },
+        ],
+      });
+    }
+
+    if (query.lastEnrichedBeforeDays) {
+      andClauses.push({
+        OR: [
+          { lastEnrichedAt: null },
+          { lastEnrichedAt: { lt: daysAgo(query.lastEnrichedBeforeDays) } },
+        ],
+      });
+    }
+
+    if (query.minConnectorScore !== undefined) {
+      andClauses.push({
+        score: {
+          is: {
+            connectorScore: { gte: query.minConnectorScore },
+          },
+        },
+      });
+    }
+
+    const where: Prisma.ContactWhereInput = andClauses.length > 0 ? { AND: andClauses } : {};
 
     const orderBy =
       query.sortBy === 'created_at'
         ? { createdAt: query.sortDir }
         : query.sortBy === 'name'
           ? { fullName: query.sortDir }
+          : query.sortBy === 'last_enriched'
+            ? { lastEnrichedAt: query.sortDir }
+            : query.sortBy === 'connector_score'
+              ? { score: { connectorScore: query.sortDir } }
           : { updatedAt: query.sortDir };
 
     const [total, contacts] = await this.prisma.$transaction([
@@ -50,12 +153,46 @@ export class ContactsService {
         include: {
           currentCompany: true,
           contactMethods: true,
+          tags: {
+            include: {
+              tag: true,
+            },
+          },
+          score: true,
         },
       }),
     ]);
 
     return {
-      data: contacts,
+      data: contacts.map((contact) => ({
+        id: contact.id,
+        fullName: contact.fullName,
+        currentTitle: contact.currentTitle,
+        locationCity: contact.locationCity,
+        locationCountry: contact.locationCountry,
+        createdAt: contact.createdAt.toISOString(),
+        updatedAt: contact.updatedAt.toISOString(),
+        lastEnrichedAt: contact.lastEnrichedAt?.toISOString() ?? null,
+        currentCompany: contact.currentCompany
+          ? {
+              id: contact.currentCompany.id,
+              name: contact.currentCompany.name,
+            }
+          : null,
+        contactMethods: contact.contactMethods.map((method) => ({
+          id: method.id,
+          type: method.type,
+          value: method.value,
+          isPrimary: method.isPrimary,
+        })),
+        tags: contact.tags
+          .map((entry) => ({
+            category: entry.tag.category,
+            name: entry.tag.name,
+          }))
+          .sort((left, right) => left.category.localeCompare(right.category) || left.name.localeCompare(right.name)),
+        connectorScore: contact.score?.connectorScore ?? null,
+      })),
       pagination: {
         page,
         pageSize,
@@ -64,12 +201,60 @@ export class ContactsService {
     };
   }
 
-  async getById(id: string): Promise<unknown> {
+  async getById(id: string): Promise<{
+    id: string;
+    fullName: string;
+    firstName: string | null;
+    lastName: string | null;
+    currentTitle: string | null;
+    locationCity: string | null;
+    locationCountry: string | null;
+    notesRaw: string | null;
+    createdAt: string;
+    updatedAt: string;
+    lastEnrichedAt: string | null;
+    currentCompany: { id: string; name: string } | null;
+    contactMethods: Array<{
+      id: string;
+      type: string;
+      value: string;
+      isPrimary: boolean;
+      source: string | null;
+    }>;
+    tags: Array<{
+      category: string;
+      name: string;
+      confidence: number | null;
+      source: string | null;
+    }>;
+    connectorScore: number | null;
+    recentEnrichmentChanges: Array<{
+      id: string;
+      field: string;
+      oldValue: string | null;
+      newValue: string | null;
+      provider: string;
+      confidence: number | null;
+      createdAt: string;
+    }>;
+  }> {
     const contact = await this.prisma.contact.findUnique({
       where: { id },
       include: {
         currentCompany: true,
         contactMethods: true,
+        tags: {
+          include: {
+            tag: true,
+          },
+        },
+        score: true,
+        enrichmentResults: {
+          orderBy: {
+            createdAt: 'desc',
+          },
+          take: 20,
+        },
       },
     });
 
@@ -77,7 +262,50 @@ export class ContactsService {
       throw new NotFoundException('Contact not found');
     }
 
-    return contact;
+    return {
+      id: contact.id,
+      fullName: contact.fullName,
+      firstName: contact.firstName,
+      lastName: contact.lastName,
+      currentTitle: contact.currentTitle,
+      locationCity: contact.locationCity,
+      locationCountry: contact.locationCountry,
+      notesRaw: contact.notesRaw,
+      createdAt: contact.createdAt.toISOString(),
+      updatedAt: contact.updatedAt.toISOString(),
+      lastEnrichedAt: contact.lastEnrichedAt?.toISOString() ?? null,
+      currentCompany: contact.currentCompany
+        ? {
+            id: contact.currentCompany.id,
+            name: contact.currentCompany.name,
+          }
+        : null,
+      contactMethods: contact.contactMethods.map((method) => ({
+        id: method.id,
+        type: method.type,
+        value: method.value,
+        isPrimary: method.isPrimary,
+        source: method.source,
+      })),
+      tags: contact.tags
+        .map((entry) => ({
+          category: entry.tag.category,
+          name: entry.tag.name,
+          confidence: entry.confidence ?? null,
+          source: entry.source ?? null,
+        }))
+        .sort((left, right) => left.category.localeCompare(right.category) || left.name.localeCompare(right.name)),
+      connectorScore: contact.score?.connectorScore ?? null,
+      recentEnrichmentChanges: contact.enrichmentResults.map((result) => ({
+        id: result.id,
+        field: result.field,
+        oldValue: result.oldValue,
+        newValue: result.newValue,
+        provider: result.provider,
+        confidence: result.confidence ?? null,
+        createdAt: result.createdAt.toISOString(),
+      })),
+    };
   }
 
   async getInsights(id: string): Promise<{
@@ -375,4 +603,231 @@ export class ContactsService {
 
     return updated;
   }
+
+  async create(
+    payload: ContactCreateInput,
+    actorUserId: string,
+    ip?: string,
+  ): Promise<{
+    id: string;
+    fullName: string;
+  }> {
+    const companyId = payload.companyName
+      ? await getOrCreateCompanyId(this.prisma, payload.companyName.trim(), new Map<string, string>())
+      : null;
+
+    const normalizedMethods = dedupeContactMethods(payload.methods);
+    const fullName = deriveContactFullName(payload, normalizedMethods);
+
+    const created = await this.prisma.contact.create({
+      data: {
+        firstName: nullifyString(payload.firstName),
+        lastName: nullifyString(payload.lastName),
+        fullName,
+        notesRaw: payload.notesRaw ?? null,
+        locationCity: nullifyString(payload.locationCity),
+        locationCountry: nullifyString(payload.locationCountry),
+        currentTitle: nullifyString(payload.currentTitle),
+        currentCompanyId: companyId,
+        contactMethods: normalizedMethods.length > 0
+          ? {
+              create: normalizedMethods.map((method) => ({
+                type: contactMethodTypeFromApi(method.type),
+                value: method.value.trim(),
+                isPrimary: method.isPrimary,
+                source: 'manual',
+              })),
+            }
+          : undefined,
+        tags: payload.tags.length > 0
+          ? {
+              create: await Promise.all(
+                payload.tags.map(async (tag) => {
+                  const tagRecord = await this.prisma.tag.upsert({
+                    where: {
+                      name_category: {
+                        name: tag.name.trim(),
+                        category: tag.category.trim(),
+                      },
+                    },
+                    update: {},
+                    create: {
+                      name: tag.name.trim(),
+                      category: tag.category.trim(),
+                    },
+                  });
+
+                  return {
+                    tagId: tagRecord.id,
+                    source: 'manual',
+                    confidence: 1,
+                  };
+                }),
+              ),
+            }
+          : undefined,
+      },
+      select: {
+        id: true,
+        fullName: true,
+      },
+    });
+
+    await this.auditService.log({
+      actorUserId,
+      action: 'contacts.create',
+      entityType: 'contact',
+      entityId: created.id,
+      ip,
+      metaJson: {
+        companyName: payload.companyName ?? null,
+        methodCount: normalizedMethods.length,
+        tagCount: payload.tags.length,
+      },
+    });
+
+    return created;
+  }
+}
+
+function buildTagWhereClause(tagQuery: string): Prisma.ContactWhereInput {
+  const trimmed = tagQuery.trim();
+  const separatorIndex = trimmed.indexOf(':');
+  if (separatorIndex > 0) {
+    const category = trimmed.slice(0, separatorIndex).trim();
+    const name = trimmed.slice(separatorIndex + 1).trim();
+
+    if (category && name) {
+      return {
+        tags: {
+          some: {
+            tag: {
+              category: { equals: category, mode: 'insensitive' },
+              name: { contains: name, mode: 'insensitive' },
+            },
+          },
+        },
+      };
+    }
+  }
+
+  return {
+    tags: {
+      some: {
+        tag: {
+          OR: [
+            { name: { contains: trimmed, mode: 'insensitive' } },
+            { category: { contains: trimmed, mode: 'insensitive' } },
+          ],
+        },
+      },
+    },
+  };
+}
+
+function daysAgo(days: number): Date {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  return date;
+}
+
+function nullifyString(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function deriveContactFullName(
+  payload: ContactCreateInput,
+  methods: Array<{ type: string; value: string; isPrimary: boolean }>,
+): string {
+  const explicit = payload.fullName?.trim();
+  if (explicit) {
+    return explicit;
+  }
+
+  const joined = [payload.firstName?.trim(), payload.lastName?.trim()].filter(Boolean).join(' ').trim();
+  if (joined) {
+    return joined;
+  }
+
+  const primaryMethod = methods.find((method) => method.isPrimary) ?? methods[0];
+  return primaryMethod?.value ?? `Manual Contact ${Date.now()}`;
+}
+
+function dedupeContactMethods(
+  methods: ContactCreateInput['methods'],
+): Array<ContactCreateInput['methods'][number]> {
+  const deduped = new Map<string, ContactCreateInput['methods'][number]>();
+  for (const method of methods) {
+    const normalizedKey = `${method.type}:${method.value.trim().toLowerCase()}`;
+    deduped.set(normalizedKey, {
+      type: method.type,
+      value: method.value.trim(),
+      isPrimary: method.isPrimary,
+    });
+  }
+
+  const items = Array.from(deduped.values());
+  if (items.length > 0 && !items.some((item) => item.isPrimary)) {
+    items[0] = {
+      ...items[0],
+      isPrimary: true,
+    };
+  }
+
+  return items;
+}
+
+function contactMethodTypeFromApi(type: ContactCreateInput['methods'][number]['type']): ContactMethodType {
+  const mapping: Record<ContactCreateInput['methods'][number]['type'], ContactMethodType> = {
+    email: ContactMethodType.EMAIL,
+    phone: ContactMethodType.PHONE,
+    website: ContactMethodType.WEBSITE,
+    linkedin: ContactMethodType.LINKEDIN,
+    twitter: ContactMethodType.TWITTER,
+    other: ContactMethodType.OTHER,
+  };
+
+  return mapping[type];
+}
+
+async function getOrCreateCompanyId(
+  prismaClient: PrismaService,
+  companyName: string,
+  cache: Map<string, string>,
+): Promise<string> {
+  const key = companyName.toLowerCase();
+  const cachedCompanyId = cache.get(key);
+  if (cachedCompanyId) {
+    return cachedCompanyId;
+  }
+
+  const existingCompany = await prismaClient.company.findFirst({
+    where: {
+      name: {
+        equals: companyName,
+        mode: 'insensitive',
+      },
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (existingCompany) {
+    cache.set(key, existingCompany.id);
+    return existingCompany.id;
+  }
+
+  const createdCompany = await prismaClient.company.create({
+    data: {
+      name: companyName,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  cache.set(key, createdCompany.id);
+  return createdCompany.id;
 }

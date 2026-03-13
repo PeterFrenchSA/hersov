@@ -106,6 +106,7 @@ The deploy script:
 - `IMPORT_STORE_RAW_ROWS` (`true|false`, default `false`)
 - `IMPORT_FUZZY_THRESHOLD` (default `0.86`)
 - `IMPORT_BATCH_WRITE_INTERVAL_ROWS` (default `250`)
+- `IMPORT_ROW_CONCURRENCY` (default `8`; increase carefully for faster large imports)
 
 ## Enrichment env vars
 

@@ -15,6 +15,7 @@ import { InsightsController } from './insights/insights.controller';
 import { ReviewController } from './review/review.controller';
 import { GraphController } from './graph/graph.controller';
 import { LinkedinController } from './linkedin/linkedin.controller';
+import { DashboardController } from './dashboard/dashboard.controller';
 import { AuthService } from './auth/auth.service';
 import { ContactsService } from './contacts/contacts.service';
 import { AuditService } from './audit/audit.service';
@@ -31,6 +32,7 @@ import { InsightsService } from './insights/insights.service';
 import { ReviewService } from './review/review.service';
 import { GraphService } from './graph/graph.service';
 import { LinkedinService } from './linkedin/linkedin.service';
+import { DashboardService } from './dashboard/dashboard.service';
 
 @Module({
   imports: [ConfigModule.forRoot({ isGlobal: true }), PrismaModule],
@@ -49,6 +51,7 @@ import { LinkedinService } from './linkedin/linkedin.service';
     ReviewController,
     GraphController,
     LinkedinController,
+    DashboardController,
   ],
   providers: [
     AuthService,
@@ -67,6 +70,7 @@ import { LinkedinService } from './linkedin/linkedin.service';
     ReviewService,
     GraphService,
     LinkedinService,
+    DashboardService,
   ],
 })
 export class AppModule {}

@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  Post,
   Patch,
   Query,
   Req,
@@ -10,9 +11,11 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  contactCreateSchema,
   contactPatchSchema,
   contactsQuerySchema,
   idParamSchema,
+  type ContactCreateInput,
   type ContactPatchInput,
   type ContactsQueryInput,
   type IdParamInput,
@@ -48,6 +51,21 @@ export class ContactsController {
   @Get(':id/network')
   async getNetwork(@Param(new ZodValidationPipe(idParamSchema)) params: IdParamInput) {
     return this.contactsService.getNetwork(params.id);
+  }
+
+  @Post()
+  @UseGuards(RolesGuard)
+  @Roles('Admin', 'Analyst')
+  async create(
+    @Body(new ZodValidationPipe(contactCreateSchema)) body: ContactCreateInput,
+    @CurrentUser() user?: { id: string },
+    @Req() request?: Request,
+  ) {
+    if (!user?.id) {
+      throw new UnauthorizedException('Authentication required');
+    }
+
+    return this.contactsService.create(body, user.id, request?.ip);
   }
 
   @Patch(':id')

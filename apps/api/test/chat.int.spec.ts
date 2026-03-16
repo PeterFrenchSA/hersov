@@ -22,6 +22,19 @@ describe('Chat integration', () => {
   let messageCounter = 0;
 
   const prismaMock: any = {
+    user: {
+      findUnique: jest.fn(async ({ where }: { where: { id?: string } }) => {
+        if (where.id === 'usr_admin') {
+          return {
+            id: 'usr_admin',
+            email: 'admin@example.com',
+            role: 'Admin',
+          };
+        }
+
+        return null;
+      }),
+    },
     chatThread: {
       findFirst: jest.fn(async ({ where }: { where: { id?: string; userId?: string } }) => {
         if (!where.id) {

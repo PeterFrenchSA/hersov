@@ -40,6 +40,19 @@ describe('Import flow integration', () => {
   };
 
   const prismaMock = {
+    user: {
+      findUnique: jest.fn(async ({ where }: { where: { id?: string } }) => {
+        if (where.id === 'usr_admin') {
+          return {
+            id: 'usr_admin',
+            email: 'admin@example.com',
+            role: 'Admin',
+          };
+        }
+
+        return null;
+      }),
+    },
     importBatch: {
       create: jest.fn(async ({ data }: { data: BatchRecord }) => {
         const now = new Date();

@@ -19,6 +19,19 @@ describe('Enrichment run integration', () => {
   const createdRuns = new Map<string, any>();
 
   const prismaMock = {
+    user: {
+      findUnique: jest.fn(async ({ where }: { where: { id?: string } }) => {
+        if (where.id === 'usr-admin') {
+          return {
+            id: 'usr-admin',
+            email: 'admin@example.com',
+            role: 'Admin',
+          };
+        }
+
+        return null;
+      }),
+    },
     enrichmentRun: {
       create: jest.fn(async ({ data }: any) => {
         const created = {

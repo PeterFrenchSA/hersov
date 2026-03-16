@@ -10,6 +10,19 @@ describe('Semantic search integration', () => {
   let app: INestApplication;
 
   const prismaMock = {
+    user: {
+      findUnique: jest.fn(async ({ where }: { where: { id?: string } }) => {
+        if (where.id === 'usr_analyst') {
+          return {
+            id: 'usr_analyst',
+            email: 'analyst@example.com',
+            role: 'Analyst',
+          };
+        }
+
+        return null;
+      }),
+    },
     $queryRawUnsafe: jest.fn(async () => [
       {
         contact_id: 'contact_1',

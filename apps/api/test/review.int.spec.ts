@@ -35,6 +35,19 @@ describe('Review workflow integration', () => {
   }>();
 
   const prismaMock: any = {
+    user: {
+      findUnique: jest.fn(async ({ where }: { where: { id?: string } }) => {
+        if (where.id === 'usr-admin') {
+          return {
+            id: 'usr-admin',
+            email: 'admin@example.com',
+            role: 'Admin',
+          };
+        }
+
+        return null;
+      }),
+    },
     reviewQueue: {
       count: jest.fn(async () => reviewRows.size),
       findMany: jest.fn(async () => Array.from(reviewRows.values())),

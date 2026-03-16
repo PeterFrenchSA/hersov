@@ -15,11 +15,30 @@ export type LinkedinSearchProviderStatus = {
 };
 
 export function resolveLinkedinSearchProvider(value?: string | null): LinkedinSearchProvider {
-  const parsed = linkedinSearchProviderSchema.safeParse(value?.trim());
-  if (!parsed.success) {
+  const normalized = value?.trim().toLowerCase() ?? '';
+  if (!normalized) {
     return defaultLinkedinSearchProvider;
   }
-  return parsed.data;
+
+  if (normalized === 'brave' || normalized === 'brave_search' || normalized === 'brave-search') {
+    return 'brave';
+  }
+
+  if (
+    normalized === 'google'
+    || normalized === 'google_custom_search'
+    || normalized === 'google-custom-search'
+    || normalized === 'google_custom'
+  ) {
+    return 'google_custom_search';
+  }
+
+  if (normalized === 'serp' || normalized === 'serpapi' || normalized === 'serp_api' || normalized === 'serp-api') {
+    return 'serpapi';
+  }
+
+  const parsed = linkedinSearchProviderSchema.safeParse(normalized);
+  return parsed.success ? parsed.data : defaultLinkedinSearchProvider;
 }
 
 export function getLinkedinSearchProviderStatus(

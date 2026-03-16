@@ -50,7 +50,24 @@ describe('Review workflow integration', () => {
     },
     reviewQueue: {
       count: jest.fn(async () => reviewRows.size),
-      findMany: jest.fn(async () => Array.from(reviewRows.values())),
+      findMany: jest.fn(async () => Array.from(reviewRows.values()).map((row) => ({
+        ...row,
+        linkedinSuggestions: row.kind === ReviewKind.LINKEDIN_PROFILE
+          ? [{
+              id: 'li-sug-1',
+              profileName: 'Jane Doe',
+              profileUrl: 'https://www.linkedin.com/in/jane-doe',
+              headline: 'Principal at Example Capital',
+              location: 'London, United Kingdom',
+              currentCompany: 'Example Capital',
+              score: 0.86,
+              contact: {
+                id: 'contact-1',
+                fullName: 'Jane Doe',
+              },
+            }]
+          : [],
+      }))),
       findUnique: jest.fn(async ({ where }: { where: { id: string } }) => reviewRows.get(where.id) ?? null),
       update: jest.fn(async ({ where, data }: { where: { id: string }; data: Partial<ReviewRow> }) => {
         const existing = reviewRows.get(where.id);

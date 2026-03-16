@@ -40,8 +40,12 @@ const relationshipPayloadSchema = z.object({
 const linkedinProfilePayloadSchema = z.object({
   suggestionId: z.string().trim().min(1),
   contactId: z.string().trim().min(1),
+  contactName: z.string().trim().min(1).optional(),
   profileUrl: z.string().trim().url(),
   profileName: z.string().trim().min(1),
+  headline: z.string().trim().min(1).optional().nullable(),
+  location: z.string().trim().min(1).optional().nullable(),
+  currentCompany: z.string().trim().min(1).optional().nullable(),
   confidence: z.number().min(0).max(1).optional(),
   evidenceSnippet: z.string().trim().min(1).optional(),
 });
@@ -59,6 +63,22 @@ export class ReviewService {
       kind: string;
       status: string;
       payloadJson: unknown;
+      summary: {
+        title: string;
+        subtitle: string | null;
+        contact: {
+          id: string;
+          fullName: string;
+        } | null;
+        linkedinSuggestion: {
+          profileName: string;
+          profileUrl: string;
+          headline: string | null;
+          location: string | null;
+          currentCompany: string | null;
+          confidence: number | null;
+        } | null;
+      } | null;
       createdByUserId: string;
       reviewedByUserId: string | null;
       reviewedAt: string | null;
@@ -81,6 +101,18 @@ export class ReviewService {
         orderBy: { createdAt: 'desc' },
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,
+        include: {
+          linkedinSuggestions: {
+            include: {
+              contact: {
+                select: {
+                  id: true,
+                  fullName: true,
+                },
+              },
+            },
+          },
+        },
       }),
     ]);
 
@@ -90,6 +122,7 @@ export class ReviewService {
         kind: row.kind.toLowerCase(),
         status: row.status.toLowerCase(),
         payloadJson: row.payloadJson,
+        summary: buildReviewSummary(row),
         createdByUserId: row.createdByUserId,
         reviewedByUserId: row.reviewedByUserId,
         reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
@@ -325,6 +358,110 @@ export class ReviewService {
       kind: row.kind.toLowerCase(),
     };
   }
+}
+
+function buildReviewSummary(row: Prisma.ReviewQueueGetPayload<{
+  include: {
+    linkedinSuggestions: {
+      include: {
+        contact: {
+          select: {
+            id: true;
+            fullName: true;
+          };
+        };
+      };
+    };
+  };
+}>): {
+  title: string;
+  subtitle: string | null;
+  contact: {
+    id: string;
+    fullName: string;
+  } | null;
+  linkedinSuggestion: {
+    profileName: string;
+    profileUrl: string;
+    headline: string | null;
+    location: string | null;
+    currentCompany: string | null;
+    confidence: number | null;
+  } | null;
+} | null {
+  if (row.kind === ReviewKind.LINKEDIN_PROFILE) {
+    const payload = linkedinProfilePayloadSchema.safeParse(row.payloadJson);
+    const suggestion = row.linkedinSuggestions[0] ?? null;
+    const contact = suggestion?.contact ?? (
+      payload.success && payload.data.contactName
+        ? {
+            id: payload.data.contactId,
+            fullName: payload.data.contactName,
+          }
+        : null
+    );
+
+    return {
+      title: contact?.fullName ?? 'LinkedIn profile suggestion',
+      subtitle: payload.success ? payload.data.profileName : suggestion?.profileName ?? null,
+      contact,
+      linkedinSuggestion: {
+        profileName: payload.success ? payload.data.profileName : suggestion?.profileName ?? 'LinkedIn candidate',
+        profileUrl: payload.success ? payload.data.profileUrl : suggestion?.profileUrl ?? '',
+        headline: payload.success ? payload.data.headline ?? null : suggestion?.headline ?? null,
+        location: payload.success ? payload.data.location ?? null : suggestion?.location ?? null,
+        currentCompany: payload.success ? payload.data.currentCompany ?? null : suggestion?.currentCompany ?? null,
+        confidence: payload.success ? payload.data.confidence ?? null : suggestion?.score ?? null,
+      },
+    };
+  }
+
+  if (row.kind === ReviewKind.TAG) {
+    const payload = tagPayloadSchema.safeParse(row.payloadJson);
+    if (payload.success) {
+      return {
+        title: `${payload.data.category}: ${payload.data.value}`,
+        subtitle: payload.data.contactId,
+        contact: {
+          id: payload.data.contactId,
+          fullName: payload.data.contactId,
+        },
+        linkedinSuggestion: null,
+      };
+    }
+  }
+
+  if (row.kind === ReviewKind.ENTITY) {
+    const payload = entityPayloadSchema.safeParse(row.payloadJson);
+    if (payload.success) {
+      return {
+        title: `Entity mention ${payload.data.entityId}`,
+        subtitle: payload.data.contactId,
+        contact: {
+          id: payload.data.contactId,
+          fullName: payload.data.contactId,
+        },
+        linkedinSuggestion: null,
+      };
+    }
+  }
+
+  if (row.kind === ReviewKind.RELATIONSHIP) {
+    const payload = relationshipPayloadSchema.safeParse(row.payloadJson);
+    if (payload.success) {
+      return {
+        title: payload.data.type,
+        subtitle: payload.data.evidenceSnippet ?? null,
+        contact: {
+          id: payload.data.fromContactId,
+          fullName: payload.data.fromContactId,
+        },
+        linkedinSuggestion: null,
+      };
+    }
+  }
+
+  return null;
 }
 
 function reviewStatusToDb(value: ReviewQueueQueryInput['status']): ReviewStatus {

@@ -1,12 +1,31 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+
+type ReviewSummary = {
+  title: string;
+  subtitle: string | null;
+  contact: {
+    id: string;
+    fullName: string;
+  } | null;
+  linkedinSuggestion: {
+    profileName: string;
+    profileUrl: string;
+    headline: string | null;
+    location: string | null;
+    currentCompany: string | null;
+    confidence: number | null;
+  } | null;
+} | null;
 
 type ReviewRow = {
   id: string;
   kind: string;
   status: string;
   payloadJson: Record<string, unknown>;
+  summary: ReviewSummary;
   createdByUserId: string;
   reviewedByUserId: string | null;
   reviewedAt: string | null;
@@ -104,6 +123,8 @@ export default function ReviewPage() {
   const evidenceSnippet = typeof selected?.payloadJson?.evidenceSnippet === 'string'
     ? selected.payloadJson.evidenceSnippet
     : '';
+  const selectedLinkedin = selected?.summary?.linkedinSuggestion ?? null;
+  const selectedContact = selected?.summary?.contact ?? null;
 
   return (
     <section className="grid" style={{ gap: '1rem' }}>
@@ -141,8 +162,16 @@ export default function ReviewPage() {
                 onClick={() => setSelectedId(row.id)}
               >
                 <div>
-                  <strong>{row.kind}</strong> [{row.status}]
+                  <strong>{row.summary?.title ?? row.kind}</strong> [{row.status}]
                 </div>
+                {row.summary?.subtitle ? (
+                  <div style={{ fontSize: '0.9rem', color: '#334155' }}>{row.summary.subtitle}</div>
+                ) : null}
+                {row.kind === 'linkedin_profile' && row.summary?.linkedinSuggestion ? (
+                  <div style={{ fontSize: '0.8rem', color: '#475569' }}>
+                    Suggested profile: {row.summary.linkedinSuggestion.profileName}
+                  </div>
+                ) : null}
                 <div style={{ fontSize: '0.8rem', color: '#475569' }}>
                   {new Date(row.createdAt).toLocaleString()}
                 </div>
@@ -155,14 +184,45 @@ export default function ReviewPage() {
             {selected ? (
               <>
                 <h2 style={{ margin: 0 }}>
-                  {selected.kind} [{selected.status}]
+                  {selected.summary?.title ?? selected.kind} [{selected.status}]
                 </h2>
+                {selectedContact ? (
+                  <p style={{ margin: 0 }}>
+                    <strong>Contact:</strong>{' '}
+                    <Link href={`/contacts/${selectedContact.id}`}>{selectedContact.fullName}</Link>
+                  </p>
+                ) : null}
+                {selectedLinkedin ? (
+                  <div className="card grid" style={{ gap: '0.5rem', background: '#f8fafc' }}>
+                    <div>
+                      <strong>Suggested profile:</strong>{' '}
+                      <a href={selectedLinkedin.profileUrl} target="_blank" rel="noreferrer">
+                        {selectedLinkedin.profileName}
+                      </a>
+                    </div>
+                    {selectedLinkedin.headline ? (
+                      <div><strong>Headline:</strong> {selectedLinkedin.headline}</div>
+                    ) : null}
+                    {selectedLinkedin.currentCompany ? (
+                      <div><strong>Company:</strong> {selectedLinkedin.currentCompany}</div>
+                    ) : null}
+                    {selectedLinkedin.location ? (
+                      <div><strong>Location:</strong> {selectedLinkedin.location}</div>
+                    ) : null}
+                    {selectedLinkedin.confidence !== null ? (
+                      <div><strong>Confidence:</strong> {selectedLinkedin.confidence.toFixed(3)}</div>
+                    ) : null}
+                  </div>
+                ) : null}
                 {evidenceSnippet ? (
                   <p>
                     <strong>Evidence:</strong> {evidenceSnippet}
                   </p>
                 ) : null}
-                <pre style={{ margin: 0, overflowX: 'auto' }}>{JSON.stringify(selected.payloadJson, null, 2)}</pre>
+                <details>
+                  <summary>Raw payload</summary>
+                  <pre style={{ margin: 0, overflowX: 'auto' }}>{JSON.stringify(selected.payloadJson, null, 2)}</pre>
+                </details>
 
                 {selected.status === 'pending' ? (
                   <div style={{ display: 'flex', gap: '0.5rem' }}>

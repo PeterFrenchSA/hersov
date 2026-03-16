@@ -189,6 +189,7 @@ export function createLinkedinMatchContactProcessor(
       const reviewPayload = {
         suggestionId: suggestion.id,
         contactId: contact.id,
+        contactName: contact.fullName,
         profileUrl: suggestion.profileUrl,
         profileName: suggestion.profileName,
         headline: suggestion.headline,

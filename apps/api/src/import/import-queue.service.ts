@@ -30,7 +30,7 @@ export class ImportQueueService implements OnModuleDestroy {
       importJobName,
       { batchId },
       {
-        jobId: `import:process:${batchId}`,
+        jobId: buildJobId('import', 'process', batchId),
         removeOnComplete: 1000,
         removeOnFail: 1000,
       },
@@ -44,7 +44,7 @@ export class ImportQueueService implements OnModuleDestroy {
       enrichmentJobName,
       { runId },
       {
-        jobId: `enrichment:run:${runId}`,
+        jobId: buildJobId('enrichment', 'run', runId),
         removeOnComplete: 1000,
         removeOnFail: 1000,
       },
@@ -53,7 +53,7 @@ export class ImportQueueService implements OnModuleDestroy {
 
   async enqueueEmbeddingsBackfill(filters: EmbeddingsBackfillInput, requestedByUserId?: string): Promise<string> {
     const queue = this.getQueue();
-    const jobId = `embeddings:backfill:${randomUUID()}`;
+    const jobId = buildJobId('embeddings', 'backfill', randomUUID());
 
     await queue.add(
       embeddingsBackfillJobName,
@@ -81,7 +81,7 @@ export class ImportQueueService implements OnModuleDestroy {
         reason,
       },
       {
-        jobId: `embeddings:upsert:${contactId}`,
+        jobId: buildJobId('embeddings', 'upsert', contactId),
         removeOnComplete: 1000,
         removeOnFail: 1000,
       },
@@ -93,7 +93,7 @@ export class ImportQueueService implements OnModuleDestroy {
     requestedByUserId?: string,
   ): Promise<string> {
     const queue = this.getQueue();
-    const jobId = `insights:backfill:${randomUUID()}`;
+    const jobId = buildJobId('insights', 'backfill', randomUUID());
 
     await queue.add(
       insightsBackfillJobName,
@@ -132,7 +132,7 @@ export class ImportQueueService implements OnModuleDestroy {
         requestedByUserId: options?.requestedByUserId,
       },
       {
-        jobId: `insights:upsert:${contactId}`,
+        jobId: buildJobId('insights', 'upsert', contactId),
         removeOnComplete: 1000,
         removeOnFail: 1000,
       },
@@ -141,7 +141,7 @@ export class ImportQueueService implements OnModuleDestroy {
 
   async enqueueGraphRecomputeScores(requestedByUserId?: string): Promise<string> {
     const queue = this.getQueue();
-    const jobId = `graph:recompute:${randomUUID()}`;
+    const jobId = buildJobId('graph', 'recompute', randomUUID());
 
     await queue.add(
       graphRecomputeScoresJobName,
@@ -160,7 +160,7 @@ export class ImportQueueService implements OnModuleDestroy {
 
   async enqueueLinkedinMatchContact(input: LinkedinMatchContactInput): Promise<string> {
     const queue = this.getQueue();
-    const jobId = `linkedin:match:contact:${input.contactId}:${randomUUID()}`;
+    const jobId = buildJobId('linkedin', 'match', 'contact', input.contactId, randomUUID());
 
     await queue.add(
       linkedinMatchContactJobName,
@@ -177,7 +177,7 @@ export class ImportQueueService implements OnModuleDestroy {
 
   async enqueueLinkedinMatchBackfill(input: LinkedinMatchBackfillInput): Promise<string> {
     const queue = this.getQueue();
-    const jobId = `linkedin:match:backfill:${randomUUID()}`;
+    const jobId = buildJobId('linkedin', 'match', 'backfill', randomUUID());
 
     await queue.add(
       linkedinMatchBackfillJobName,
@@ -208,4 +208,11 @@ export class ImportQueueService implements OnModuleDestroy {
 
     return this.queue;
   }
+}
+
+function buildJobId(...parts: string[]): string {
+  return parts
+    .map((part) => part.replace(/[^a-zA-Z0-9_-]+/g, '-'))
+    .filter((part) => part.length > 0)
+    .join('__');
 }

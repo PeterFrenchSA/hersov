@@ -30,7 +30,7 @@ export async function enqueueEmbeddingUpsertContactJobs(contactIds: string[], re
         reason,
       },
       opts: {
-        jobId: `embeddings:upsert:${contactId}`,
+        jobId: buildJobId('embeddings', 'upsert', contactId),
         removeOnComplete: 1000,
         removeOnFail: 1000,
       },
@@ -43,4 +43,11 @@ export async function closeEmbeddingsDispatchQueue(): Promise<void> {
     await queue.close();
     queue = undefined;
   }
+}
+
+function buildJobId(...parts: string[]): string {
+  return parts
+    .map((part) => part.replace(/[^a-zA-Z0-9_-]+/g, '-'))
+    .filter((part) => part.length > 0)
+    .join('__');
 }

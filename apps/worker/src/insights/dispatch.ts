@@ -44,7 +44,7 @@ export async function enqueueInsightsUpsertContactJobs(
         requestedByUserId: options?.requestedByUserId,
       },
       opts: {
-        jobId: `insights:upsert:${contactId}`,
+        jobId: buildJobId('insights', 'upsert', contactId),
         removeOnComplete: 1000,
         removeOnFail: 1000,
       },
@@ -60,7 +60,7 @@ export async function enqueueGraphRecomputeScoresJob(requestedByUserId?: string)
       requestedByUserId,
     },
     {
-      jobId: `graph:recompute:latest`,
+      jobId: buildJobId('graph', 'recompute', 'latest'),
       removeOnComplete: 1000,
       removeOnFail: 1000,
     },
@@ -72,4 +72,11 @@ export async function closeInsightsDispatchQueue(): Promise<void> {
     await queue.close();
     queue = undefined;
   }
+}
+
+function buildJobId(...parts: string[]): string {
+  return parts
+    .map((part) => part.replace(/[^a-zA-Z0-9_-]+/g, '-'))
+    .filter((part) => part.length > 0)
+    .join('__');
 }

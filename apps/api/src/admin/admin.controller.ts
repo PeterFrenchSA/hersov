@@ -1,4 +1,5 @@
 import { Controller, Get, UseGuards } from '@nestjs/common';
+import { getLinkedinSearchProviderStatus } from '@hersov/shared';
 import { SessionAuthGuard } from '../common/session-auth.guard';
 import { RolesGuard } from '../common/roles.guard';
 import { Roles } from '../common/roles.decorator';
@@ -14,12 +15,7 @@ export class AdminController {
   getProviderStatus() {
     return {
       data: this.enrichmentService.getProviderStatuses(),
-      linkedinSearch: {
-        name: 'linkedin_search_api',
-        label: 'LinkedIn Search API',
-        configured: Boolean(process.env.LINKEDIN_SEARCH_API_KEY?.trim()),
-        envVar: 'LINKEDIN_SEARCH_API_KEY',
-      },
+      linkedinSearch: getLinkedinSearchProviderStatus(),
     };
   }
 }

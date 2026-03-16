@@ -79,4 +79,11 @@ export class LinkedinController {
   ) {
     return this.linkedinService.listSuggestions(query);
   }
+
+  @Get('status')
+  @UseGuards(RolesGuard)
+  @Roles('Admin', 'Analyst')
+  async getStatus() {
+    return this.linkedinService.getStatus();
+  }
 }

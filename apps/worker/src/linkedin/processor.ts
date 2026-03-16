@@ -27,7 +27,10 @@ export async function closeLinkedinMatchProcessor(): Promise<void> {
 export function createLinkedinMatchContactProcessor(
   prismaClient: PrismaClient,
   deps: {
-    search?: (input: { query: string; maxResults: number }) => Promise<LinkedinSearchCandidate[]>;
+    search?: (input: {
+      query: string;
+      maxResults: number;
+    }) => Promise<{ providerName: string; candidates: LinkedinSearchCandidate[] }>;
   } = {},
 ) {
   const search = deps.search ?? searchLinkedinProfiles;
@@ -50,9 +53,12 @@ export function createLinkedinMatchContactProcessor(
         },
         contactMethods: {
           where: {
-            type: ContactMethodType.LINKEDIN,
+            type: {
+              in: [ContactMethodType.LINKEDIN, ContactMethodType.EMAIL],
+            },
           },
           select: {
+            type: true,
             value: true,
           },
         },
@@ -63,7 +69,12 @@ export function createLinkedinMatchContactProcessor(
       throw new Error(`Contact ${input.contactId} not found`);
     }
 
-    if (!input.force && contact.contactMethods.length > 0) {
+    const existingLinkedinMethods = contact.contactMethods.filter((method) => method.type === ContactMethodType.LINKEDIN);
+    const contactEmails = contact.contactMethods
+      .filter((method) => method.type === ContactMethodType.EMAIL)
+      .map((method) => method.value);
+
+    if (!input.force && existingLinkedinMethods.length > 0) {
       return {
         status: 'skipped',
         reason: 'contact_already_has_linkedin',
@@ -73,13 +84,16 @@ export function createLinkedinMatchContactProcessor(
     const query = buildSearchQuery({
       fullName: contact.fullName,
       companyName: contact.currentCompany?.name ?? null,
+      currentTitle: contact.currentTitle,
       locationCountry: contact.locationCountry,
+      emails: contactEmails,
     });
 
-    const searchResults = await search({
+    const searchResponse = await search({
       query,
       maxResults: input.maxResults,
     });
+    const searchResults = searchResponse.candidates;
 
     if (searchResults.length === 0) {
       await writeAuditLog(prismaClient, {
@@ -89,6 +103,7 @@ export function createLinkedinMatchContactProcessor(
         entityId: contact.id,
         metaJson: {
           query,
+          provider: searchResponse.providerName,
         },
       });
       return {
@@ -146,7 +161,7 @@ export function createLinkedinMatchContactProcessor(
           },
         },
         update: {
-          provider: 'search_api',
+          provider: searchResponse.providerName,
           profileName: item.candidate.profileName || contact.fullName,
           headline: item.candidate.headline,
           location: item.candidate.location,
@@ -158,7 +173,7 @@ export function createLinkedinMatchContactProcessor(
         },
         create: {
           contactId: contact.id,
-          provider: 'search_api',
+          provider: searchResponse.providerName,
           profileUrl: item.candidate.profileUrl,
           profileName: item.candidate.profileName || contact.fullName,
           headline: item.candidate.headline,
@@ -226,11 +241,12 @@ export function createLinkedinMatchContactProcessor(
       action: 'linkedin.match_contact_completed',
       entityType: 'contact',
       entityId: contact.id,
-      metaJson: {
-        query,
-        minScore,
-        candidateCount: searchResults.length,
-        suggestedCount,
+        metaJson: {
+          query,
+          provider: searchResponse.providerName,
+          minScore,
+          candidateCount: searchResults.length,
+          suggestedCount,
       },
     });
 
@@ -341,21 +357,40 @@ export function createLinkedinMatchBackfillProcessor(
   };
 }
 
-function buildSearchQuery(input: {
+export function buildSearchQuery(input: {
   fullName: string;
   companyName: string | null;
+  currentTitle: string | null;
   locationCountry: string | null;
+  emails: string[];
 }): string {
+  const primaryEmail = input.emails[0] ?? null;
+  const primaryDomain = primaryEmail?.split('@')[1]?.trim() ?? null;
   const parts = [
-    input.fullName,
-    input.companyName ?? '',
-    input.locationCountry ?? '',
-    'linkedin',
+    'site:linkedin.com/in',
+    quoteTerm(input.fullName),
+    input.companyName ? quoteTerm(input.companyName) : '',
+    input.currentTitle ? quoteTerm(input.currentTitle) : '',
+    input.locationCountry ? quoteTerm(input.locationCountry) : '',
+    !input.companyName && primaryDomain ? quoteTerm(primaryDomain) : '',
   ]
     .map((item) => item.trim())
     .filter(Boolean);
 
   return parts.join(' ');
+}
+
+function quoteTerm(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  if (trimmed.includes('"')) {
+    return trimmed.replace(/"/g, '');
+  }
+
+  return `"${trimmed}"`;
 }
 
 function getMinimumScore(): number {

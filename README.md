@@ -34,11 +34,13 @@ Implemented in this PR:
   - `POST /api/linkedin/match/contact/:id`
   - `POST /api/linkedin/match/backfill`
   - `GET /api/linkedin/match/suggestions`
+  - `GET /api/linkedin/match/status`
 - UI updates:
   - `/review` queue page
   - `/insights` dashboard page
   - contact detail tabs: Profile / Insights / Network
   - contact profile section: LinkedIn match suggestions + approve/reject actions
+  - `/linkedin` bulk matching page for queueing backfills and reviewing suggestions at scale
 
 Deferred to later PRs:
 - browser automation scraping
@@ -147,9 +149,11 @@ Run/merge controls:
 
 ## LinkedIn match env vars
 
+- `LINKEDIN_SEARCH_PROVIDER` (default `serpapi`; supported: `serpapi`, `brave`, `google_custom_search`)
 - `LINKEDIN_SEARCH_API_KEY` (required to enable LinkedIn search matching)
-- `LINKEDIN_SEARCH_API_URL` (default `https://serpapi.com/search.json`)
-- `LINKEDIN_SEARCH_API_ENGINE` (default `google`)
+- `LINKEDIN_SEARCH_API_URL` (provider-specific default if unset)
+- `LINKEDIN_SEARCH_API_ENGINE` (used by `serpapi`, default `google`)
+- `LINKEDIN_GOOGLE_CSE_ID` (required when `LINKEDIN_SEARCH_PROVIDER=google_custom_search`)
 - `LINKEDIN_SEARCH_API_TIMEOUT_MS` (default `15000`)
 - `LINKEDIN_MATCH_MIN_SCORE` (default `0.45`)
 
@@ -232,15 +236,19 @@ Security notes:
 
 ## How LinkedIn matching works (search API + heuristics)
 
-1. Open a contact detail page.
-2. In **LinkedIn match suggestions**, click **Find LinkedIn Matches**.
-3. Server queues a background job (`linkedin:matchContact`) for that contact.
-4. Worker queries the configured search API for LinkedIn profile candidates.
+1. Open `/linkedin` to queue a bulk backfill, or use a contact detail page for a single-contact run.
+2. Server queues `linkedin:matchBackfill` or `linkedin:matchContact`.
+3. Worker queries the configured search provider for LinkedIn profile candidates.
+4. Search queries are biased toward LinkedIn profile pages and use name, company, title, country, and email/domain where available.
 5. Candidates are scored with deterministic heuristics (name/company/title/location/URL slug).
 6. High-scoring candidates are stored in `linkedin_profile_suggestions` and pushed to `/review` as kind `linkedin_profile`.
-7. Approve/reject in contact detail or `/review`:
+7. Approve/reject in `/linkedin`, contact detail, or `/review`:
    - approve -> adds/updates `contact_methods(type=linkedin)` and marks as primary
    - reject -> suggestion remains tracked as rejected
+
+Low-cost provider recommendation:
+- `LINKEDIN_SEARCH_PROVIDER=brave` is the best default if you want to keep discovery costs low at scale.
+- `LINKEDIN_SEARCH_PROVIDER=google_custom_search` is also supported if you already operate a Google Custom Search Engine.
 
 ## How review works
 

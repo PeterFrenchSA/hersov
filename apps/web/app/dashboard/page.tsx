@@ -86,7 +86,7 @@ export default function DashboardPage() {
             <article className="card">
               <h2>Missing LinkedIn</h2>
               <p style={{ fontSize: '2rem', margin: 0 }}>{dashboard.missingLinkedin}</p>
-              <Link href="/contacts?missingLinkedin=true">Find candidates</Link>
+              <Link href="/linkedin">Run bulk matching</Link>
             </article>
             <article className="card">
               <h2>Missing location</h2>

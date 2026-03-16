@@ -4,6 +4,7 @@ export * from './enrichment/schema';
 export * from './ai/schema';
 export * from './insights/schema';
 export * from './linkedin/schema';
+export * from './linkedin/provider';
 
 export const roleSchema = z.enum(['Admin', 'Analyst', 'ReadOnly']);
 export type AppRole = z.infer<typeof roleSchema>;

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { linkedinSearchProviderSchema } from './provider';
 
 export const linkedinMatchContactJobName = 'linkedin:matchContact';
 export const linkedinMatchBackfillJobName = 'linkedin:matchBackfill';
@@ -39,6 +40,7 @@ export type LinkedinSuggestionStatus = z.infer<typeof linkedinSuggestionStatusSc
 export const linkedinSuggestionsQuerySchema = z.object({
   contactId: z.string().trim().min(1).optional(),
   status: linkedinSuggestionStatusSchema.optional(),
+  provider: linkedinSearchProviderSchema.optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });

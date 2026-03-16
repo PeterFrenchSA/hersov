@@ -369,15 +369,25 @@ export default function ContactDetailsPage() {
           </article>
           <article className="card grid" style={{ gap: '0.75rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
-              <h2 style={{ margin: 0 }}>LinkedIn match suggestions</h2>
-              <button
-                type="button"
-                className="button"
-                onClick={() => void runLinkedinMatch()}
-                disabled={linkedinSubmitting}
-              >
-                {linkedinSubmitting ? 'Running...' : 'Find LinkedIn Matches'}
-              </button>
+              <div>
+                <h2 style={{ margin: 0 }}>LinkedIn match suggestions</h2>
+                <p style={{ margin: '0.35rem 0 0', color: '#475569' }}>
+                  Use the bulk tool for wider runs, or run a focused match just for this contact.
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <Link className="button secondary" href="/linkedin">
+                  Open Bulk Tool
+                </Link>
+                <button
+                  type="button"
+                  className="button"
+                  onClick={() => void runLinkedinMatch()}
+                  disabled={linkedinSubmitting}
+                >
+                  {linkedinSubmitting ? 'Running...' : 'Find LinkedIn Matches'}
+                </button>
+              </div>
             </div>
 
             {linkedinError ? <p className="error">{linkedinError}</p> : null}

@@ -1,10 +1,12 @@
-import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { ReviewStatus, type Prisma } from '@prisma/client';
+import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { ContactMethodType, ReviewStatus, type Prisma } from '@prisma/client';
 import type {
   LinkedinMatchBackfillInput,
   LinkedinMatchContactInput,
+  LinkedinSearchProvider,
   LinkedinSuggestionsQueryInput,
 } from '@hersov/shared';
+import { getLinkedinSearchProviderStatus } from '@hersov/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { ImportQueueService } from '../import/import-queue.service';
 import { AuditService } from '../audit/audit.service';
@@ -27,6 +29,8 @@ export class LinkedinService {
     if (!input.actorUserId) {
       throw new UnauthorizedException('Authentication required');
     }
+
+    ensureLinkedinProviderConfigured();
 
     const contact = await this.prisma.contact.findUnique({
       where: { id: input.contactId },
@@ -72,6 +76,8 @@ export class LinkedinService {
     if (!input.actorUserId) {
       throw new UnauthorizedException('Authentication required');
     }
+
+    ensureLinkedinProviderConfigured();
 
     const jobId = await this.queueService.enqueueLinkedinMatchBackfill({
       ...input.filters,
@@ -119,6 +125,7 @@ export class LinkedinService {
     const where: Prisma.LinkedinProfileSuggestionWhereInput = {
       ...(query.contactId ? { contactId: query.contactId } : {}),
       ...(query.status ? { status: reviewStatusFromApi(query.status) } : {}),
+      ...(query.provider ? { provider: providerNameFromFilter(query.provider) } : {}),
     };
 
     const [total, rows] = await this.prisma.$transaction([
@@ -167,6 +174,75 @@ export class LinkedinService {
       },
     };
   }
+
+  async getStatus(): Promise<{
+    provider: {
+      provider: LinkedinSearchProvider;
+      name: string;
+      label: string;
+      configured: boolean;
+      envVars: string[];
+      apiUrl: string;
+    };
+    totals: {
+      contactsMissingLinkedin: number;
+      pendingSuggestions: number;
+      approvedSuggestions: number;
+      rejectedSuggestions: number;
+      suggestedContacts: number;
+    };
+    lastSuggestionAt: string | null;
+  }> {
+    const provider = getLinkedinSearchProviderStatus();
+
+    const [
+      contactsMissingLinkedin,
+      pendingSuggestions,
+      approvedSuggestions,
+      rejectedSuggestions,
+      suggestedContactsRaw,
+      latestSuggestion,
+    ] = await Promise.all([
+      this.prisma.contact.count({
+        where: {
+          contactMethods: {
+            none: {
+              type: ContactMethodType.LINKEDIN,
+            },
+          },
+        },
+      }),
+      this.prisma.linkedinProfileSuggestion.count({
+        where: { status: ReviewStatus.PENDING },
+      }),
+      this.prisma.linkedinProfileSuggestion.count({
+        where: { status: ReviewStatus.APPROVED },
+      }),
+      this.prisma.linkedinProfileSuggestion.count({
+        where: { status: ReviewStatus.REJECTED },
+      }),
+      this.prisma.linkedinProfileSuggestion.findMany({
+        distinct: ['contactId'],
+        select: { contactId: true },
+      }),
+      this.prisma.linkedinProfileSuggestion.findFirst({
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      }),
+    ]);
+
+    return {
+      provider,
+      totals: {
+        contactsMissingLinkedin,
+        pendingSuggestions,
+        approvedSuggestions,
+        rejectedSuggestions,
+        suggestedContacts: suggestedContactsRaw.length,
+      },
+      lastSuggestionAt: latestSuggestion?.createdAt.toISOString() ?? null,
+    };
+  }
 }
 
 function reviewStatusFromApi(value: 'pending' | 'approved' | 'rejected'): ReviewStatus {
@@ -179,3 +255,19 @@ function reviewStatusFromApi(value: 'pending' | 'approved' | 'rejected'): Review
   return ReviewStatus.PENDING;
 }
 
+function providerNameFromFilter(value: 'serpapi' | 'brave' | 'google_custom_search'): string {
+  if (value === 'brave') {
+    return 'brave_search';
+  }
+
+  return value;
+}
+
+function ensureLinkedinProviderConfigured(): void {
+  const provider = getLinkedinSearchProviderStatus();
+  if (!provider.configured) {
+    throw new BadRequestException(
+      `LinkedIn search provider is not configured. Set ${provider.envVars.join(', ')} first.`,
+    );
+  }
+}

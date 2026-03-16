@@ -21,6 +21,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
               <Link href="/contacts">Contacts</Link>
               <Link href="/import">Import</Link>
               <Link href="/enrichment">Enrichment</Link>
+              <Link href="/linkedin">LinkedIn</Link>
               <Link href="/insights">Insights</Link>
               <Link href="/review">Review</Link>
               <Link href="/chat">Chat</Link>

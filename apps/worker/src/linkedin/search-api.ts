@@ -1,3 +1,7 @@
+import {
+  getLinkedinSearchProviderStatus,
+  type LinkedinSearchProvider,
+} from '@hersov/shared';
 import { normalizeLinkedinProfileUrl } from './heuristics';
 
 export interface LinkedinSearchCandidate {
@@ -20,59 +24,223 @@ interface SearchApiResponse {
   results?: SearchApiOrganicResult[];
 }
 
+interface BraveWebResult {
+  title?: string;
+  url?: string;
+  description?: string;
+}
+
+interface BraveSearchResponse {
+  web?: {
+    results?: BraveWebResult[];
+  };
+}
+
+interface GoogleCustomSearchItem {
+  title?: string;
+  link?: string;
+  snippet?: string;
+}
+
+interface GoogleCustomSearchResponse {
+  items?: GoogleCustomSearchItem[];
+}
+
 export async function searchLinkedinProfiles(input: {
   query: string;
   maxResults: number;
-}): Promise<LinkedinSearchCandidate[]> {
-  const apiKey = process.env.LINKEDIN_SEARCH_API_KEY?.trim();
-  if (!apiKey) {
-    return [];
+}): Promise<{
+  providerName: string;
+  candidates: LinkedinSearchCandidate[];
+}> {
+  const providerStatus = getLinkedinSearchProviderStatus();
+  if (!providerStatus.configured) {
+    return {
+      providerName: providerStatus.name,
+      candidates: [],
+    };
   }
 
-  const apiUrl = process.env.LINKEDIN_SEARCH_API_URL?.trim() || 'https://serpapi.com/search.json';
-  const engine = process.env.LINKEDIN_SEARCH_API_ENGINE?.trim() || 'google';
+  const apiKey = process.env.LINKEDIN_SEARCH_API_KEY?.trim();
+  if (!apiKey) {
+    return {
+      providerName: providerStatus.name,
+      candidates: [],
+    };
+  }
+
   const timeoutMs = parsePositiveInt(process.env.LINKEDIN_SEARCH_API_TIMEOUT_MS, 15_000);
   const requestLimit = Math.max(1, Math.min(25, input.maxResults * 3));
-
-  const url = new URL(apiUrl);
-  url.searchParams.set('engine', engine);
-  url.searchParams.set('q', input.query);
-  url.searchParams.set('num', String(requestLimit));
-  url.searchParams.set('api_key', apiKey);
-
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(url.toString(), {
-      method: 'GET',
-      headers: {
-        accept: 'application/json',
-      },
+    const candidates = await fetchByProvider({
+      provider: providerStatus.provider,
+      apiKey,
+      apiUrl: providerStatus.apiUrl,
+      query: input.query,
+      requestLimit,
       signal: controller.signal,
     });
 
-    if (!response.ok) {
-      return [];
-    }
-
-    const payload = (await response.json()) as SearchApiResponse;
-    const rawItems = payload.organic_results ?? payload.results ?? [];
-    const candidates = dedupeCandidates(
-      rawItems
-        .map((item) => toCandidate(item))
-        .filter((item): item is LinkedinSearchCandidate => item !== null),
-    );
-
-    return candidates.slice(0, input.maxResults);
+    return {
+      providerName: providerStatus.name,
+      candidates: candidates.slice(0, input.maxResults),
+    };
   } catch {
-    return [];
+    return {
+      providerName: providerStatus.name,
+      candidates: [],
+    };
   } finally {
     clearTimeout(timeout);
   }
 }
 
-function toCandidate(item: SearchApiOrganicResult): LinkedinSearchCandidate | null {
+async function fetchByProvider(input: {
+  provider: LinkedinSearchProvider;
+  apiKey: string;
+  apiUrl: string;
+  query: string;
+  requestLimit: number;
+  signal: AbortSignal;
+}): Promise<LinkedinSearchCandidate[]> {
+  if (input.provider === 'brave') {
+    return fetchBraveSearch(input);
+  }
+
+  if (input.provider === 'google_custom_search') {
+    return fetchGoogleCustomSearch(input);
+  }
+
+  return fetchSerpApi(input);
+}
+
+async function fetchSerpApi(input: {
+  apiKey: string;
+  apiUrl: string;
+  query: string;
+  requestLimit: number;
+  signal: AbortSignal;
+}): Promise<LinkedinSearchCandidate[]> {
+  const engine = process.env.LINKEDIN_SEARCH_API_ENGINE?.trim() || 'google';
+  const url = new URL(input.apiUrl);
+  url.searchParams.set('engine', engine);
+  url.searchParams.set('q', input.query);
+  url.searchParams.set('num', String(input.requestLimit));
+  url.searchParams.set('api_key', input.apiKey);
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      accept: 'application/json',
+    },
+    signal: input.signal,
+  });
+
+  if (!response.ok) {
+    return [];
+  }
+
+  const payload = (await response.json()) as SearchApiResponse;
+  const rawItems = payload.organic_results ?? payload.results ?? [];
+  return dedupeCandidates(
+    rawItems
+      .map((item) => toCandidate({
+        title: item.title,
+        link: item.link,
+        snippet: item.snippet,
+      }))
+      .filter((item): item is LinkedinSearchCandidate => item !== null),
+  );
+}
+
+async function fetchBraveSearch(input: {
+  apiKey: string;
+  apiUrl: string;
+  query: string;
+  requestLimit: number;
+  signal: AbortSignal;
+}): Promise<LinkedinSearchCandidate[]> {
+  const url = new URL(input.apiUrl);
+  url.searchParams.set('q', input.query);
+  url.searchParams.set('count', String(input.requestLimit));
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      accept: 'application/json',
+      'X-Subscription-Token': input.apiKey,
+    },
+    signal: input.signal,
+  });
+
+  if (!response.ok) {
+    return [];
+  }
+
+  const payload = (await response.json()) as BraveSearchResponse;
+  const rawItems = payload.web?.results ?? [];
+  return dedupeCandidates(
+    rawItems
+      .map((item) => toCandidate({
+        title: item.title,
+        link: item.url,
+        snippet: item.description,
+      }))
+      .filter((item): item is LinkedinSearchCandidate => item !== null),
+  );
+}
+
+async function fetchGoogleCustomSearch(input: {
+  apiKey: string;
+  apiUrl: string;
+  query: string;
+  requestLimit: number;
+  signal: AbortSignal;
+}): Promise<LinkedinSearchCandidate[]> {
+  const cx = process.env.LINKEDIN_GOOGLE_CSE_ID?.trim();
+  if (!cx) {
+    return [];
+  }
+
+  const url = new URL(input.apiUrl);
+  url.searchParams.set('key', input.apiKey);
+  url.searchParams.set('cx', cx);
+  url.searchParams.set('q', input.query);
+  url.searchParams.set('num', String(Math.min(10, input.requestLimit)));
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      accept: 'application/json',
+    },
+    signal: input.signal,
+  });
+
+  if (!response.ok) {
+    return [];
+  }
+
+  const payload = (await response.json()) as GoogleCustomSearchResponse;
+  const rawItems = payload.items ?? [];
+  return dedupeCandidates(
+    rawItems
+      .map((item) => toCandidate({
+        title: item.title,
+        link: item.link,
+        snippet: item.snippet,
+      }))
+      .filter((item): item is LinkedinSearchCandidate => item !== null),
+  );
+}
+
+function toCandidate(item: {
+  title?: string;
+  link?: string;
+  snippet?: string;
+}): LinkedinSearchCandidate | null {
   const rawUrl = item.link?.trim();
   const profileUrl = rawUrl ? normalizeLinkedinProfileUrl(rawUrl) : null;
   if (!profileUrl) {
@@ -159,4 +327,3 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   }
   return parsed;
 }
-

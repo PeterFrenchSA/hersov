@@ -25,10 +25,12 @@ type EmbeddingsStatus = {
 };
 
 type LinkedinSearchStatus = {
+  provider: 'serpapi' | 'brave' | 'google_custom_search';
   name: string;
   label: string;
   configured: boolean;
-  envVar: string;
+  envVars: string[];
+  apiUrl: string;
 };
 
 export default function AdminSettingsPage() {
@@ -187,8 +189,10 @@ export default function AdminSettingsPage() {
                 <div>
                   <strong>{linkedinSearchStatus.label}</strong> ({linkedinSearchStatus.name})
                 </div>
+                <div>Selected provider: {linkedinSearchStatus.provider}</div>
                 <div>Status: {linkedinSearchStatus.configured ? 'Configured' : 'Disabled'}</div>
-                <div>Env var: {linkedinSearchStatus.envVar}</div>
+                <div>Env vars: {linkedinSearchStatus.envVars.join(', ')}</div>
+                <div>API URL: {linkedinSearchStatus.apiUrl}</div>
               </div>
             ) : null}
             {providers.map((provider) => (
